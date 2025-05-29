@@ -21,13 +21,24 @@ A sophisticated Retrieval-Augmented Generation (RAG) chatbot powered by Gemini 2
 
 1. **Clone/Navigate to the project directory**
    ```bash
-   cd "d:\Root\Playground\Python\RAG"
+   git clone https://github.com/Rizr09/RAG-Chatbot
+   cd RAG-Chatbot
    ```
 
 2. **Activate the virtual environment**
-   ```bash
-   .\myenv\Scripts\Activate.ps1
-   ```
+   - If you haven't created a virtual environment, do so now:
+     ```bash
+     python -m venv myenv
+     ```
+   - Activate it:
+     - On Windows:
+       ```bash
+       myenv\Scripts\activate
+       ```
+     - On macOS/Linux:
+       ```bash
+       source myenv/bin/activate
+       ``` 
 
 3. **Install dependencies** (already installed in your environment)
    ```bash
@@ -69,16 +80,12 @@ A sophisticated Retrieval-Augmented Generation (RAG) chatbot powered by Gemini 2
 ```
 RAG/
 ├── app.py                 # Main Streamlit application
-├── document_processor.py  # PDF processing and chunking
+├── document_processor.py  # PDF processing and chunking  
 ├── vector_store.py       # ChromaDB vector store management
 ├── rag_system.py         # RAG logic with Gemini integration
 ├── requirements.txt      # Python dependencies
 ├── .env                  # Environment variables (API key)
 ├── documents/            # PDF documents folder
-│   ├── Deutsche Bank Annual-Outlook-2025 Perspectives.pdf
-│   ├── JPmorgan Global outlook 2025 -Building on strength.pdf
-│   ├── Morgan Stanely 2025 BEAT [Bonds, equities, alternative, transition].pdf
-│   └── Rothschild 2025 perpectives (English version).pdf
 ├── chroma_db/           # ChromaDB storage (created automatically)
 └── myenv/               # Python virtual environment
 ```
@@ -89,7 +96,7 @@ RAG/
 2. **Embedding Generation**: Text chunks are converted to embeddings using Google's embedding model
 3. **Vector Storage**: Embeddings are stored in ChromaDB for efficient similarity search
 4. **Query Processing**: User questions are embedded and matched against document chunks
-5. **Response Generation**: Relevant chunks are sent to Gemini 2.5 Pro for answer generation
+5. **Response Generation**: Relevant chunks are sent to Gemini 2.5 Flash Preview 04-17 for generating answers
 6. **Source Attribution**: Answers include references to source documents
 
 ## Configuration
