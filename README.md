@@ -107,7 +107,7 @@ RAG/
 
 ### Retrieval Settings
 - **Default K**: 6 documents retrieved per query
-- **Temperature**: 0.1 (for consistent, factual responses)
+- **Temperature**: 0.05 (for consistent, factual responses)
 - **Max Tokens**: 2048 (for comprehensive answers)
 
 ## Customization
