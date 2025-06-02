@@ -1,6 +1,6 @@
 # Market Outlook RAG Chatbot
 
-A sophisticated Retrieval-Augmented Generation (RAG) chatbot powered by Gemini 2.5 Pro API for answering questions about market outlooks, investment strategies, and economic trends based on your PDF documents.
+A sophisticated Retrieval-Augmented Generation (RAG) chatbot powered by Gemini 2.5 Flash API for answering questions about market outlooks, investment strategies, and economic trends based on your PDF documents.
 
 ## Features
 
