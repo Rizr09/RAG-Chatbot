@@ -9,7 +9,7 @@ A sophisticated Retrieval-Augmented Generation (RAG) chatbot powered by Gemini 2
 - **Market Focus**: Specialized for financial and market analysis documents
 - **Minimalist UI**: Clean, modern interface built with Streamlit
 - **Persistent Storage**: ChromaDB vector database for efficient document retrieval
-- **Powered by Gemini 2.5 Pro**: State-of-the-art language model for accurate responses
+- **Powered by Gemini 2.5 Flash Preview**: State-of-the-art language model for accurate responses
 
 ## Prerequisites
 
