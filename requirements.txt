@@ -8,3 +8,4 @@ pypdf>=5.5.0
 sentence-transformers>=4.1.0
 python-dotenv>=1.1.0
 googletrans==4.0.0-rc1
+python-telegram-bot>=20.0
