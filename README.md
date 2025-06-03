@@ -1,185 +1,171 @@
-# Market Outlook RAG Chatbot
+# RAG-Powered LLM Q&A System with Local Document Integration
 
-A sophisticated Retrieval-Augmented Generation (RAG) chatbot powered by Gemini 2.5 Flash API for answering questions about market outlooks, investment strategies, and economic trends based on your PDF documents.
+Proyek ini adalah sistem cerdas yang menggunakan teknologi Retrieval-Augmented Generation (RAG) dan Large Language Model (LLM) seperti Gemini dari Google. Sistem ini dapat menjawab pertanyaan berdasarkan informasi dari dokumen-dokumen (misalnya PDF) yang Anda simpan secara lokal. Anda bisa berinteraksi dengannya melalui aplikasi web (dibuat dengan Streamlit) atau bot Telegram.
 
-## Features
+## Kemampuan Utama (Key Features)
 
-- **Intelligent Q&A**: Ask questions about market trends, investment strategies, and economic outlook
-- **Document Retrieval**: Automatically finds relevant information from your PDF documents
-- **Market Focus**: Specialized for financial and market analysis documents
-- **Minimalist UI**: Clean, modern interface built with Streamlit
-- **Persistent Storage**: ChromaDB vector database for efficient document retrieval
-- **Powered by Gemini 2.5 Flash Preview**: State-of-the-art language model for accurate responses
+- **Intelligent Q&A**: Dapat menjawab pertanyaan Anda berdasarkan isi dokumen yang Anda sediakan.
+- **Document Retrieval**: Bisa menemukan dokumen yang relevan dengan permintaan Anda.
+- **Bilingual Support**: Mengerti dan merespons dalam bahasa Indonesia dan Inggris.
+- **Dual Interface**:
+    - **Web Application**: User interface (UI) yang mudah digunakan melalui browser, dibangun dengan Streamlit.
+    - **Telegram Bot**: Dapat diakses langsung dari chat Telegram Anda.
+- **Efficient Vector Storage**: Menggunakan ChromaDB untuk menyimpan dan mencari informasi (embeddings) dari dokumen Anda dengan cepat.
+- **Powered by Gemini API**: Ditenagai oleh model bahasa canggih dari Google (Gemini) untuk jawaban yang baik.
+- **Flexible Document Processing**: Mudah memproses (termasuk chunking) dan mengatur dokumen PDF Anda.
+- **Conversation Memory**: Menyimpan riwayat obrolan untuk konteks yang lebih baik (di Streamlit dan Telegram Bot).
 
-## Prerequisites
+## Yang Anda Perlukan (Prerequisites)
 
-- Python 3.8+
-- Google Gemini API key
-- PDF documents (market outlook reports, investment strategies, etc.)
+- Python versi 3.8 atau lebih baru.
+- Google Gemini API Key (bisa didapatkan dari Google AI Studio).
+- Dokumen-dokumen PDF yang ingin Anda gunakan.
+- Telegram Bot Token (jika ingin menggunakan fitur Telegram Bot).
 
-## Installation
+## Cara Instalasi (Installation)
 
-1. **Clone/Navigate to the project directory**
-   ```bash
-   git clone https://github.com/Rizr09/RAG-Chatbot
-   cd RAG-Chatbot
-   ```
+1.  **Clone Repositori atau Buka Folder Proyek**
+    Jika Anda baru memulai, clone dulu repositori ini. Jika sudah ada, cukup buka foldernya.
 
-2. **Activate the virtual environment**
-   - If you haven't created a virtual environment, do so now:
-     ```bash
-     python -m venv myenv
-     ```
-   - Activate it:
-     - On Windows:
-       ```bash
-       myenv\Scripts\activate
-       ```
-     - On macOS/Linux:
-       ```bash
-       source myenv/bin/activate
-       ``` 
+2.  **Buat dan Aktifkan Python Virtual Environment**
+    Ini seperti membuat "ruang kerja" khusus untuk proyek ini agar dependencies tidak tercampur.
+    -   Buat virtual environment (misalnya, bernama `myenv`):
+        ```bash
+        python -m venv myenv
+        ```
+    -   Aktifkan:
+        -   Untuk pengguna Windows:
+            ```bash
+            myenv\Scripts\activate
+            ```
+        -   Untuk pengguna macOS atau Linux:
+            ```bash
+            source myenv/bin/activate
+            ```
 
-3. **Install dependencies** (already installed in your environment)
-   ```bash
-   pip install -r requirements.txt
-   ```
+3.  **Instal Dependencies**
+    Perintah ini akan menginstal semua library Python yang dibutuhkan oleh proyek dari file `requirements.txt`.
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-4. **Set up environment variables**
-   - Create a `.env` file in the project root with your Google Gemini API key:
-     ```
-     GEMINI_API_KEY=your_gemini_api_key_here
-     ```
-   - Ensure this file is not committed to version control (add to `.gitignore`)
+4.  **Siapkan API Key dan Token**
+    -   Buat file baru bernama `.env` di folder utama proyek.
+    -   Isi file tersebut seperti ini, ganti dengan API Key dan Token Anda:
+        ```env
+        GEMINI_API_KEY=your_gemini_api_key_here
+        TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here # Hanya jika pakai Telegram Bot
+        ```
+    -   Penting: Jangan bagikan isi file `.env` ini ke orang lain atau ke internet (tambahkan ke `.gitignore`).
 
-5. **Add your documents**
-   - Place your PDF files in the `documents/` folder
-   - Supported documents include market outlook reports, investment strategies, and economic analyses
+5.  **Letakkan Dokumen Anda**
+    -   Buat folder bernama `documents_retrieval/` di dalam folder proyek (jika belum ada).
+    -   Masukkan semua file PDF yang ingin Anda gunakan ke dalam folder `documents_retrieval/` ini.
 
-## Usage
+## Cara Menggunakan (Usage)
 
-1. **Start the application**
-   ```bash
-   streamlit run app.py
-   ```
-
-2. **Access the web interface**
-   - Open your browser to `http://localhost:8501`
-   - The application will automatically process your PDF documents on first run
-
-3. **Ask questions**
-   - Use the chat interface to ask questions about market outlook
-   - Examples:
-     - "What are the key market trends for 2025?"
-     - "What investment strategies are recommended?"
-     - "What are the main economic risks highlighted?"
-     - "How do different institutions view equity markets?"
-
-## Project Structure
-
-```
-RAG/
-├── app.py                 # Main Streamlit application
-├── document_processor.py  # PDF processing and chunking  
-├── vector_store.py       # ChromaDB vector store management
-├── rag_system.py         # RAG logic with Gemini integration
-├── requirements.txt      # Python dependencies
-├── .env                  # Environment variables (API key)
-├── documents/            # PDF documents folder
-├── chroma_db/           # ChromaDB storage (created automatically)
-└── myenv/               # Python virtual environment
+### 1. Inisialisasi Sistem & Dokumen (Penting untuk Penggunaan Pertama Kali)
+Jalankan script `init_system.py` ini di terminal. Script ini akan memproses dokumen Anda (melakukan chunking dan membuat embeddings) dan menyiapkannya di vector store (ChromaDB).
+```bash
+python init_system.py
 ```
 
-## How It Works
+### 2. Menjalankan Aplikasi Web (Streamlit App)
+Untuk menggunakan user interface web:
+```bash
+streamlit run app.py
+```
+-   Setelah itu, buka browser (seperti Chrome atau Firefox) dan pergi ke alamat `http://localhost:8501`.
 
-1. **Document Processing**: PDF documents are loaded and split into chunks for better retrieval
-2. **Embedding Generation**: Text chunks are converted to embeddings using Google's embedding model
-3. **Vector Storage**: Embeddings are stored in ChromaDB for efficient similarity search
-4. **Query Processing**: User questions are embedded and matched against document chunks
-5. **Response Generation**: Relevant chunks are sent to Gemini 2.5 Flash Preview 04-17 for generating answers
-6. **Source Attribution**: Answers include references to source documents
+### 3. Menjalankan Telegram Bot
+Untuk menggunakan melalui Telegram:
+```bash
+python telegram_bot.py
+```
+-   Pastikan Anda sudah mengisi `TELEGRAM_BOT_TOKEN` di file `.env`.
+-   Bot akan aktif dan bisa Anda ajak bicara di Telegram.
 
-## Configuration
+### Contoh Pertanyaan (Bisa untuk Web App atau Telegram Bot)
 
-### Chunk Settings
-- **Chunk Size**: 1000 characters (adjustable in `document_processor.py`)
-- **Chunk Overlap**: 200 characters (ensures context continuity)
+-   "jelaskan tentang [topik dari dokumen Anda]"
+-   "kirimkan saya dokumen yang membahas [subjek tertentu]"
+-   "What are the main conclusions from [nama dokumen]?"
 
-### Retrieval Settings
-- **Default K**: 6 documents retrieved per query
-- **Temperature**: 0.05 (for consistent, factual responses)
-- **Max Tokens**: 2048 (for comprehensive answers)
+## Struktur Proyek (Project Structure)
 
-## Customization
-
-### Adding New Documents
-1. Place new PDF files in the `documents/` folder
-2. Restart the application to process new documents
-3. Or clear the ChromaDB cache to reprocess all documents
-
-### Modifying the Prompt
-Edit the prompt template in `rag_system.py` to customize the assistant's behavior:
-
-```python
-template = """Your custom prompt here..."""
+```
+RAG/ (Folder Utama Proyek)
+├── app.py                 # Kode untuk aplikasi Streamlit (Web UI)
+├── telegram_bot.py        # Kode untuk Telegram Bot
+├── rag_system.py          # Logika inti sistem RAG & LLM
+├── vector_store.py        # Mengatur vector store (ChromaDB)
+├── document_processor.py  # Memproses dokumen PDF (chunking, dll.)
+├── init_system.py         # Script untuk inisialisasi dan pemrosesan dokumen awal
+├── requirements.txt       # Daftar dependencies Python
+├── .env                   # Tempat menyimpan API Key dan Token (Rahasia)
+├── documents_retrieval/   # Folder tempat Anda menyimpan PDF
+├── chroma_db/             # Database untuk vector embeddings (dibuat otomatis oleh ChromaDB)
+├── myenv/                 # Folder Python virtual environment Anda
+└── README.md              # File panduan ini
 ```
 
-### Adjusting UI
-Modify the CSS styles in `app.py` to change the appearance:
+## Bagaimana Sistem Ini Bekerja (How It Works - Simplified)
 
-```python
-st.markdown("""<style>...</style>""", unsafe_allow_html=True)
-```
+1.  **Document Loading & Chunking**: Dokumen PDF dari folder `documents_retrieval/` dibaca, lalu isinya dipecah menjadi potongan-potongan kecil (chunks).
+2.  **Embedding Generation**: Setiap chunk teks diubah menjadi representasi numerik (vector embedding) menggunakan model embedding dari Google.
+3.  **Vector Storage**: Semua embeddings ini disimpan di vector store (ChromaDB) agar mudah dicari.
+4.  **Query Embedding**: Saat Anda bertanya, pertanyaan Anda juga diubah menjadi embedding.
+5.  **Similarity Search**: Sistem akan mencari chunks dokumen di vector store yang embeddings-nya paling mirip dengan embedding pertanyaan Anda.
+6.  **Response Generation with LLM**: Chunks dokumen yang paling relevan, beserta pertanyaan Anda, dikirim sebagai konteks ke Large Language Model (Gemini). LLM kemudian menghasilkan jawaban atau menentukan dokumen yang diminta.
+7.  **Delivering Response**: Jawaban (atau dokumennya) dikirimkan kembali kepada Anda melalui aplikasi Streamlit atau Telegram Bot.
 
-## Troubleshooting
+## Pengaturan Lebih Lanjut (Advanced Configuration)
 
-### Common Issues
+Anda bisa mengubah beberapa parameter jika perlu, misalnya:
 
-1. **API Key Error**
-   - Verify your Gemini API key in `.env`
-   - Ensure the key has proper permissions
+-   **Chunking settings** (ukuran chunk, overlap): Di file `document_processor.py`.
+-   **LLM parameters** (model Gemini yang dipakai, temperature untuk kreativitas jawaban): Di file `rag_system.py`.
+-   **Vector store settings** (nama folder database ChromaDB): Di file `vector_store.py`.
 
-2. **Document Loading Issues**
-   - Check PDF file integrity
-   - Ensure PDFs contain extractable text (not just images)
+## Kustomisasi (Customization)
 
-3. **Memory Issues**
-   - Reduce chunk size or number of retrieved documents
-   - Process fewer documents at once
+### Menambah Dokumen Baru
 
-4. **Slow Performance**
-   - First run takes longer due to document processing
-   - Subsequent runs use cached embeddings
+1.  Taruh PDF baru di folder `documents_retrieval/`.
+2.  Jalankan ulang `python init_system.py` agar dokumen baru ikut diproses dan ditambahkan ke vector store.
 
-### Reset Vector Database
-If you need to reprocess all documents:
+### Mengubah Prompt untuk LLM
 
-```python
-# In Python console
-from vector_store import VectorStore
-vs = VectorStore(api_key="your_key")
-vs.delete_collection()
-```
+Anda bisa mengubah template atau instruksi awal (prompt) untuk LLM di file `rag_system.py` (dalam metode `_create_prompt_template()`). Ini bisa mengubah gaya bahasa atau fokus jawaban sistem.
 
-## Performance Tips
+### Mengubah Tampilan Web (Streamlit UI)
 
-1. **Optimal Document Size**: Keep PDFs under 50MB for best performance
-2. **Question Quality**: Be specific in your questions for better results
-3. **Context Window**: The system works best with focused, document-specific queries
+Tampilan aplikasi web Streamlit bisa diubah dengan mengedit kode CSS di file `app.py`.
 
-## Security Notes
+## Jika Ada Masalah (Troubleshooting)
 
-- Keep your API key secure and don't commit it to version control
-- The `.env` file should be added to `.gitignore` in production
-- Consider using environment variables or secure key management in production
+-   **API Key Error?**: Pastikan `GEMINI_API_KEY` di file `.env` sudah benar dan aktif.
+-   **Telegram Bot Token Error?**: Cek `TELEGRAM_BOT_TOKEN` di `.env` jika pakai Telegram Bot.
+-   **Document Loading Issues?**: Pastikan file PDF Anda tidak rusak dan berisi teks (bukan hanya gambar). Dan pastikan ada di folder `documents_retrieval/`.
+-   **System Not Finding Info?**: Mungkin dokumen belum diproses atau vector store kosong. Jalankan `python init_system.py`.
 
-## License
+### Ingin Mengulang dari Awal (Reset Vector Store)?
 
-This project is for educational and personal use. Please ensure you have the right to process the PDF documents you're using.
+1.  Hapus folder `chroma_db/`.
+2.  Jalankan lagi `python init_system.py`.
 
-## Support
+## Keamanan (Security Notes)
 
-For issues or questions:
-1. Check the Streamlit logs in the console
-2. Verify all dependencies are properly installed
-3. Ensure your API key is valid and has sufficient quota
+-   **JANGAN PERNAH** membagikan API Key atau Token Bot Anda. Simpan baik-baik dan jangan di-commit ke Git.
+-   File `.env` sebaiknya selalu ada di dalam `.gitignore`.
+
+## Lisensi (License)
+
+Proyek ini bebas digunakan untuk belajar atau keperluan pribadi. Pastikan Anda punya hak untuk menggunakan dokumen-dokumen yang Anda masukkan ke sistem.
+
+## Bantuan (Support)
+
+Jika ada masalah:
+1.  Lihat pesan error yang muncul di terminal saat Anda menjalankan program.
+2.  Pastikan semua dependencies dari `requirements.txt` sudah terinstal di virtual environment Anda.
+3.  Pastikan Google Gemini API Key Anda masih berlaku dan memiliki kuota.
