@@ -4,7 +4,6 @@ Document processing module for loading and chunking PDF documents.
 
 import os
 from typing import List
-from pypdf import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.schema import Document

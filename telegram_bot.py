@@ -10,6 +10,7 @@ from vector_store import VectorStore # Assuming VectorStore is needed for RAGSys
 from document_processor import DocumentProcessor # Assuming DocumentProcessor might be needed for full setup
 import time
 from typing import List, Dict
+from utils import process_and_add_documents # Import the new utility function
 
 # Load environment variables
 load_dotenv()
@@ -78,32 +79,11 @@ try:
     logger.info("Initializing VectorStore...")
     vector_store = VectorStore(api_key=GEMINI_API_KEY, persist_directory=PERSIST_DIRECTORY)
     
-    doc_count = vector_store.get_collection_count()
-    if doc_count == 0:
-        logger.info("Vector store is empty. Processing documents...")
-        if not os.path.exists(DOCUMENTS_DIR):
-            logger.error(f"Documents directory '{DOCUMENTS_DIR}' not found. Cannot initialize RAG system.")
-            exit()
-        pdf_files = [f for f in os.listdir(DOCUMENTS_DIR) if f.lower().endswith('.pdf')]
-        if not pdf_files:
-            logger.error(f"No PDF files found in '{DOCUMENTS_DIR}'. Cannot initialize RAG system.")
-            exit()
-            
-        doc_processor = DocumentProcessor() # Assuming default chunk_size/overlap is fine here
-        processed_docs = doc_processor.process_documents(DOCUMENTS_DIR)
-        if processed_docs:
-            vector_store.add_documents(processed_docs)
-            logger.info("Documents processed and added to vector store.")
-        else:
-            logger.error("Failed to process documents. RAG system might not function correctly.")
-            # Not exiting, to allow bot to run even if doc processing fails initially
+    if vector_store.get_collection_count() == 0:
+        process_and_add_documents(vector_store, DOCUMENTS_DIR)
 
     logger.info("Initializing RAGSystem...")
     rag_system = RAGSystem(api_key=GEMINI_API_KEY, vector_store=vector_store)
-    # The qa_chain is no longer pre-initialized like this. ConversationalRetrievalChain is built on demand.
-    # if not rag_system.qa_chain: 
-    #     logger.info("QA chain not initialized by default, attempting to initialize.")
-    #     rag_system._reinitialize_qa_chain() 
     logger.info("RAGSystem initialized successfully.")
 
 except Exception as e:
@@ -135,12 +115,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_histories[chat_id] = {"history": [], "last_active": time.time()} # Reset history
     
     welcome_message = (
-        "<b>Halo! Saya chatbot yang sudah terintegrasi dengan database paper milik @rizr09.</b>\n\n"
-        "Saya dapat menjawab pertanyaan riset AI & keuangan, mengirimkan dokumen riset relevan, dan menghapus memori percakapan (/reset).\n\n"
+        "<b>Halo! Saya chatbot yang sudah terintegrasi dengan database dokumen hukum @rizr09.</b>\n\n"
+        "Saya dapat menjawab pertanyaan riset hukum Telekomunikasi, Informatika, Siber, & Internet, mengirimkan dokumen hukum relevan, dan menghapus memori percakapan (/reset).\n\n"
         "<b>Contoh pertanyaan:</b>\n"
-        "1. apa itu LoRA berdasarkan dokumen yang ada?\n"
+        "1. apa saja kewajiban penyelenggara sistem elektronik berdasarkan undang-undang?\n"
         "2. kirim dokumennya coba (apabila ingin coreference berdasarkan chat sebelumnya)\n"
-        "3. What is the difference between sukuk and bonds?\n\n"
+        "3. What are the legal aspects of cybersecurity in Indonesia?\n\n"
         "Bot dapat menerima pertanyaan dalam Bahasa Indonesia dan Inggris. Silakan mulai bertanya!"
     )
     await update.message.reply_text(welcome_message, parse_mode=ParseMode.HTML)
@@ -184,7 +164,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     if os.path.exists(doc_path) and os.path.isfile(doc_path):
                         try:
                             with open(doc_path, "rb") as f:
-                                await update.message.reply_document(f, connect_timeout=60, read_timeout=60) # Added timeouts
+                                await update.message.reply_document(f, connect_timeout=300, read_timeout=300) # Increased timeouts for large files
                         except Exception as e:
                             logger.error(f"Failed to send document {doc_path}: {e}")
                             cleaned_error_doc_msg = clean_response_text(f"Maaf, gagal mengirim dokumen: {os.path.basename(doc_path)}.")

@@ -3,9 +3,7 @@ Vector store module for document embeddings and similarity search.
 """
 
 import os
-from typing import List, Optional
-import chromadb
-from chromadb.config import Settings
+from typing import List
 from langchain_chroma import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain.schema import Document

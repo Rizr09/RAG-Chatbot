@@ -5,13 +5,13 @@ Initialization script to set up and test the RAG system.
 import os
 import sys
 from dotenv import load_dotenv
-from document_processor import DocumentProcessor
 from vector_store import VectorStore
 from rag_system import RAGSystem
+from utils import process_and_add_documents
 
 def main():
     """Initialize and test the RAG system."""
-    print("Initializing Market Outlook RAG System...")
+    print("Initializing Telecommunication, Informatics, Cyber, and Internet Law RAG System...")
     
     # Load environment variables
     load_dotenv()
@@ -41,10 +41,7 @@ def main():
     
     try:
         # Initialize components
-        print("\nInitializing document processor...")
-        doc_processor = DocumentProcessor(chunk_size=1000, chunk_overlap=200)
-        
-        print("Initializing vector store...")
+        print("\nInitializing vector store...")
         vector_store = VectorStore(api_key=api_key)
         
         print("Initializing RAG system...")
@@ -55,28 +52,20 @@ def main():
         
         if doc_count == 0:
             print("\nProcessing documents...")
-            processed_docs = doc_processor.process_documents(documents_dir)
+            success = process_and_add_documents(vector_store, documents_dir)
             
-            if processed_docs:
-                print(f"Adding {len(processed_docs)} document chunks to vector store...")
-                vector_store.add_documents(processed_docs)
-                print("Documents processed and indexed successfully")
-            else:
-                print("Error: Failed to process documents")
+            if not success:
+                print("Error: Failed to process documents. Exiting.")
                 sys.exit(1)
+            print("Documents processed and indexed successfully")
         else:
             print(f"Vector store already contains {doc_count} documents")
           # Test the system with a sample question
         print("\nTesting the system...")
-        test_question = "What are the key market trends mentioned in the documents?"
+        test_question = "Apa saja peraturan terkait perlindungan data pribadi di Indonesia?"
         print(f"Question: {test_question}")
         
-        # Try to reinitialize QA chain if needed
-        if not rag_system.qa_chain:
-            print("Reinitializing QA chain...")
-            rag_system._reinitialize_qa_chain()
-        
-        response = rag_system.ask_question(test_question)
+        response = rag_system.chat_with_context(test_question)
         
         if "error" not in response:
             print("\nSystem test successful!")
@@ -84,7 +73,6 @@ def main():
             print(f"Sources found: {len(response['source_documents'])}")
         else:
             print(f"System test failed: {response['error']}")
-            # Don't exit, as the web interface might still work
             print("The web interface may still function properly")
         
         print("\nRAG system is ready!")

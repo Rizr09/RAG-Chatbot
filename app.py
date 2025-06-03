@@ -9,7 +9,6 @@ from document_processor import DocumentProcessor
 from vector_store import VectorStore
 from rag_system import RAGSystem
 import logging
-import re
 import time
 
 # Load environment variables
@@ -325,12 +324,12 @@ def main():
     """Main application function."""    # Header
     st.markdown("""
     <div class="header-container">
-        <h1 style="margin:0; color:#64b5f6; text-align:center;">AI & Finance Research Q&A</h1>
+        <h1 style="margin:0; color:#64b5f6; text-align:center;">Hukum Telekomunikasi, Informatika, Siber, & Internet Q&A</h1>
         <p style="margin:0.5rem 0 0 0; text-align:center; color:#b0bec5;">
-            Ask questions about research papers in Artificial Intelligence and Finance.
+            Ajukan pertanyaan tentang undang-undang, peraturan, dan kebijakan terkait Telematika.
         </p>
         <p style="margin:0.8rem 0 0 0; text-align:center; color:#78909c; font-size:0.85rem;">
-            Made by /rizr09 | Powered by Gemini
+            Dibuat oleh /rizr09 | Didukung oleh Gemini
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -343,7 +342,7 @@ def main():
     
     # Sidebar
     with st.sidebar:
-        st.markdown("### System Information")
+        st.markdown("### Informasi Sistem")
         
         # Load documents and initialize system
         doc_processor, vector_store, rag_system, doc_count = load_documents()
@@ -358,13 +357,13 @@ def main():
                 st.markdown(f"""
                 <div class="metric-card">
                     <h3 style="margin:0; color:#64b5f6;">{doc_count}</h3>
-                    <p style="margin:0; font-size:0.8rem; color:#b0bec5;">PDF Files</p>
+                    <p style="margin:0; font-size:0.8rem; color:#b0bec5;">File PDF</p>
                 </div>
                 """, unsafe_allow_html=True)
             
             with col2:
                 st.markdown(f"""                <div class="metric-card">
-                    <h3 style="margin:0; color:#66bb6a;">Ready</h3>
+                    <h3 style="margin:0; color:#66bb6a;">Siap</h3>
                     <p style="margin:0; font-size:0.8rem; color:#b0bec5;">Status</p>
                 </div>
                 """, unsafe_allow_html=True)
@@ -372,7 +371,7 @@ def main():
             st.markdown("---")
             
             # Conversation controls
-            st.markdown("### Conversation")
+            st.markdown("### Percakapan")
             
             # Only show clear option if there are messages
             if st.session_state.get("messages", []):
@@ -381,9 +380,9 @@ def main():
                     st.session_state.confirm_clear = False
                 
                 if not st.session_state.confirm_clear:
-                    if st.button("Start New Conversation", 
+                    if st.button("Mulai Percakapan Baru", 
                                 key="clear_chat", 
-                                help="Clear current conversation and start fresh",
+                                help="Bersihkan percakapan saat ini dan mulai yang baru",
                                 use_container_width=True):
                         st.session_state.confirm_clear = True
                         st.rerun()
@@ -391,54 +390,54 @@ def main():
                     st.markdown("""
                     <div style="background-color: #1e293b; padding: 1rem; border-radius: 0.5rem; border: 1px solid #475569; margin-bottom: 1rem;">
                         <p style="margin: 0; color: #f1f5f9; font-weight: 500; text-align: center;">
-                            Clear current conversation?
+                            Bersihkan percakapan saat ini?
                         </p>
                         <p style="margin: 0.5rem 0 0 0; color: #94a3b8; font-size: 0.85rem; text-align: center;">
-                            This action cannot be undone
+                            Tindakan ini tidak dapat dibatalkan
                         </p>
                     </div>
                     """, unsafe_allow_html=True)
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        if st.button("Yes, Clear", 
+                        if st.button("Ya, Bersihkan", 
                                     key="confirm_yes", 
-                                    help="Confirm clearing the conversation",
+                                    help="Konfirmasi membersihkan percakapan",
                                     use_container_width=True):
                             st.session_state.messages = []
                             st.session_state.confirm_clear = False
-                            st.success("New conversation started")
+                            st.success("Percakapan baru dimulai")
                             st.rerun()
                     with col2:
-                        if st.button("Cancel", 
+                        if st.button("Batal", 
                                     key="confirm_no",
-                                    help="Keep current conversation",
+                                    help="Pertahankan percakapan saat ini",
                                     use_container_width=True):
                             st.session_state.confirm_clear = False
                             st.rerun()
             else:                st.markdown("""
                 <div style="background-color: #065f46; padding: 0.75rem; border-radius: 0.5rem; border-left: 3px solid #10b981;">
-                    <div style='color: #a7f3d0; font-weight: 500; text-align: center;'>Ready for your questions</div>
+                    <div style='color: #a7f3d0; font-weight: 500; text-align: center;'>Siap untuk pertanyaan Anda</div>
                 </div>
                 """, unsafe_allow_html=True)
         else:
-            st.error("System not properly initialized")
+            st.error("Sistem tidak diinisialisasi dengan benar")
             st.session_state.system_initialized = False    # Main chat interface
     if st.session_state.system_initialized:
         # Show welcome message for first time users
         if not st.session_state.messages:
             with st.chat_message("assistant", avatar="🤖"):
                 st.markdown("""
-                👋 **Welcome to AI & Finance Research Q&A!**
+                👋 **Selamat datang di Q&A Hukum Telekomunikasi, Informatika, Siber, & Internet!**
 
-                I'm your AI assistant for exploring research papers. Ask me about:
+                Saya asisten AI Anda untuk menjelajahi dokumen hukum. Tanyakan kepada saya tentang:
 
-                •  **Key findings & methodologies in AI papers**  
-                •  **Concepts and theories in finance research**  
-                •  **Connections between AI and financial applications**  
-                •  **Specific details from uploaded documents**
+                •  **Undang-undang dan peraturan tentang Telekomunikasi**  
+                •  **Kebijakan dan kasus terkait Informatika dan Siber**  
+                •  **Regulasi Internet dan privasi data**  
+                •  **Detail spesifik dari dokumen yang diunggah**
 
-                Feel free to ask anything related to the provided research documents!
+                Jangan ragu untuk bertanya apa pun yang terkait dengan dokumen hukum yang disediakan!
                 """)
         
         # Chat container
@@ -484,19 +483,19 @@ def main():
 
                         elif "sources" in message and message["sources"]: # Standard Q&A with sources
                             st.markdown(message["content"]) # Display the textual answer
-                            with st.expander(f"📄 View Sources ({len(message['sources'])} documents)", expanded=False):
+                            with st.expander(f"📄 Lihat Sumber ({len(message['sources'])} dokumen)", expanded=False):
                                 for i, source in enumerate(message["sources"]):
                                     st.markdown(f"""
                                     <div class="source-document">
-                                        <div class="source-header">📋 Source {i+1}: {source.get('source_file', 'Unknown')} (Page: {source.get('page', 'N/A')})</div>
-                                        <div style="margin-top: 0.5rem; line-height: 1.5;">{source.get('content', 'No content available')}</div>
+                                        <div class="source-header">📋 Sumber {i+1}: {source.get('source_file', 'Tidak Dikenal')} (Halaman: {source.get('page', 'N/A')})</div>
+                                        <div style="margin-top: 0.5rem; line-height: 1.5;">{source.get('content', 'Tidak ada konten yang tersedia')}</div>
                                     </div>
                                     """, unsafe_allow_html=True)
                         else: # Fallback for simple text message from assistant (e.g., errors, or answers without sources)
                             st.markdown(message["content"])
                                 
           # Chat input
-        if prompt := st.chat_input("💬 Ask about AI/Finance papers or request a document..."):
+        if prompt := st.chat_input("💬 Ajukan pertanyaan tentang hukum TI, Siber, & Internet atau minta dokumen..."):
             # Add user message to session state
             st.session_state.messages.append({"role": "user", "content": prompt})
             
@@ -507,7 +506,7 @@ def main():
             
             # Get RAG system response
             rag_system = st.session_state.rag_system
-            with st.spinner("Thinking..."):
+            with st.spinner("Berpikir..."):
                 # Pass the entire conversation history
                 # The RAGSystem's chat_with_context now expects this directly
                 response = rag_system.chat_with_context(
@@ -568,12 +567,12 @@ def main():
                         })
                         st.markdown(answer)
                         if sources:
-                            with st.expander(f"📄 View Sources ({len(sources)} documents)", expanded=False):
+                            with st.expander(f"📄 Lihat Sumber ({len(sources)} dokumen)", expanded=False):
                                 for i, source in enumerate(sources):
                                     st.markdown(f"""
                                     <div class="source-document">
-                                        <div class="source-header">📋 Source {i+1}: {source.get('source_file', 'Unknown')} (Page: {source.get('page', 'N/A')})</div>
-                                        <div style="margin-top: 0.5rem; line-height: 1.5;">{source.get('content', 'No content available')}</div>
+                                        <div class="source-header">📋 Sumber {i+1}: {source.get('source_file', 'Tidak Dikenal')} (Halaman: {source.get('page', 'N/A')})</div>
+                                        <div style="margin-top: 0.5rem; line-height: 1.5;">{source.get('content', 'Tidak ada konten yang tersedia')}</div>
                                     </div>
                                     """, unsafe_allow_html=True)
                                     
@@ -591,7 +590,7 @@ def main():
             st.rerun()
 
     else:
-        st.warning("RAG system is not initialized. Please check logs or .env configuration.")
+        st.warning("Sistem RAG tidak diinisialisasi. Silakan periksa log atau konfigurasi .env.")
 
 if __name__ == "__main__":
     main()

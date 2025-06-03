@@ -8,16 +8,12 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.chains import ConversationalRetrievalChain
 from langchain.chains.question_answering import load_qa_chain
 from langchain.chains.llm import LLMChain
-from langchain.prompts import PromptTemplate, ChatPromptTemplate, HumanMessagePromptTemplate, SystemMessagePromptTemplate
-from langchain_core.tracers.schemas import Run
+from langchain.prompts import PromptTemplate
 from langchain_core.callbacks.manager import CallbackManagerForRetrieverRun, AsyncCallbackManagerForRetrieverRun
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
-from langchain.memory import ConversationBufferMemory, ChatMessageHistory
-from langchain_core.messages import HumanMessage, AIMessage
 import logging
 from googletrans import Translator
-import os
 import asyncio
 import threading # Added for running async calls in a separate thread
 import json # Added for parsing LLM output
@@ -70,7 +66,7 @@ class RAGSystem:
         self.llm = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash-preview-04-17",
             google_api_key=api_key,
-            temperature=0.15,
+            temperature=0.05,
             max_output_tokens=2048
         )
         
@@ -83,7 +79,7 @@ class RAGSystem:
     def _create_combine_docs_prompt(self) -> PromptTemplate:
         """Create a custom prompt template for AI and Finance research paper Q&A, used by the combine_docs_chain."""
         
-        template = """You are an expert AI and Finance Research Analyst. Your primary goal is to assist users by either answering their questions based on the provided `Context` or by providing them with the relevant documents if their query indicates a request for the document itself. Use the `Chat History` to understand the context of the conversation.
+        template = """You are an expert in Telecommunication, Informatics, Cyber, and Internet Indonesia Law. Your primary goal is to assist users by either answering their questions based on the provided `Context` or by providing them with the relevant documents if their query indicates a request for the document itself. Use the `Chat History` to understand the context of the conversation.
 
 **Chat History:**
 {chat_history}
@@ -96,13 +92,13 @@ class RAGSystem:
     *   Follow the detailed answering instructions below.
 
 2.  **Document Provisioning Mode:**
-    *   If you judge that the user's query is primarily a request *for* one or more documents, papers, or files themselves (e.g., "send me the paper on X", "can I get the document about Y?", "find the report on Z and related articles"), then you MUST respond *ONLY* with a single JSON object in the following exact format. Do not add any text before or after this JSON object:
+    *   If you judge that the user's query is primarily a request *for* one or more documents, papers, or files themselves (e.g., "send me the regulation on X", "can I get the law about Y?", "find the internet policy on Z and related articles"), then you MUST respond *ONLY* with a single JSON object in the following exact format. Do not add any text before or after this JSON object:
 
 ```json
 {{
   "intent": "provide_document",
   "search_query_for_docs": "<keywords you determine are best for finding the requested document(s), considering the chat history and current question>",
-  "user_message": "<a short, friendly message for the user, e.g., 'Certainly, I found the following document(s) related to your request for X (based on our conversation):'>"
+  "user_message": "<a short, friendly message for the user, e.g., 'Tentu, saya menemukan dokumen berikut terkait permintaan Anda untuk X (berdasarkan percakapan kita):'>"
 }}
 ```
 
@@ -143,57 +139,63 @@ Follow Up Input: {question}
 Standalone question:"""
         return PromptTemplate.from_template(template)
 
+    def _get_retriever_for_query(self, query: str, k: int) -> List[Document]:
+        """Helper to get documents for a single query."""
+        retriever = self.vector_store.get_retriever(k=k)
+        if retriever:
+            return retriever.invoke(query)
+        return []
+
+    def _combine_and_deduplicate_docs(self, *doc_lists: List[Document]) -> List[Document]:
+        """Helper to combine and deduplicate documents from multiple lists."""
+        combined_docs_dict = {}
+        for doc_list in doc_lists:
+            for doc in doc_list:
+                doc_key = (doc.page_content, doc.metadata.get('source_file'), doc.metadata.get('page'))
+                if doc_key not in combined_docs_dict:
+                    combined_docs_dict[doc_key] = doc
+        return list(combined_docs_dict.values())
+
+    def _create_custom_retriever_instance(self, documents: List[Document]) -> BaseRetriever:
+        """Helper to create either CustomRetriever or EmptyRetriever."""
+        class CustomRetriever(BaseRetriever):
+            documents: List[Document]
+
+            class Config:
+                arbitrary_types_allowed = True
+
+            def _get_relevant_documents(self, query: str, *, run_manager: CallbackManagerForRetrieverRun) -> List[Document]:
+                return self.documents
+
+            async def _aget_relevant_documents(self, query: str, *, run_manager: AsyncCallbackManagerForRetrieverRun) -> List[Document]:
+                return self.documents
+
+        if not documents:
+            logger.warning("No documents found. QA might be uninformative.")
+            class EmptyRetriever(BaseRetriever):
+                class Config:
+                    arbitrary_types_allowed = True
+                def _get_relevant_documents(self, query: str, *, run_manager: CallbackManagerForRetrieverRun) -> List[Document]:
+                    return []
+                async def _aget_relevant_documents(self, query: str, *, run_manager: AsyncCallbackManagerForRetrieverRun) -> List[Document]:
+                    return []
+            return EmptyRetriever()
+        else:
+            return CustomRetriever(documents=documents)
+
     def _get_custom_retriever(self, translated_question_for_retrieval: str = None, original_question: str = None) -> BaseRetriever:
         """
         Creates a custom retriever that combines results from original and translated queries.
         """
         try:
             if translated_question_for_retrieval and original_question:
-                base_retriever_orig = self.vector_store.get_retriever(k=5)
-                base_retriever_trans = self.vector_store.get_retriever(k=5)
-
-                original_docs = []
-                if base_retriever_orig:
-                    # Use invoke for newer Langchain versions if get_relevant_documents is deprecated
-                    original_docs = base_retriever_orig.invoke(original_question)
+                original_docs = self._get_retriever_for_query(original_question, k=10)
+                translated_docs = self._get_retriever_for_query(translated_question_for_retrieval, k=10)
                 
-                translated_docs = []
-                if base_retriever_trans:
-                    translated_docs = base_retriever_trans.invoke(translated_question_for_retrieval)
-
-                combined_docs_dict = {}
-                for doc in original_docs + translated_docs:
-                    doc_key = (doc.page_content, doc.metadata.get('source_file'), doc.metadata.get('page'))
-                    if doc_key not in combined_docs_dict:
-                        combined_docs_dict[doc_key] = doc
-                
-                unique_combined_docs = list(combined_docs_dict.values())[:6]
-
-                class CustomRetriever(BaseRetriever):
-                    documents: List[Document]
-
-                    class Config:
-                        arbitrary_types_allowed = True
-                        
-                    def _get_relevant_documents(self, query: str, *, run_manager: CallbackManagerForRetrieverRun) -> List[Document]:
-                        return self.documents
-                    async def _aget_relevant_documents(self, query: str, *, run_manager: AsyncCallbackManagerForRetrieverRun) -> List[Document]:
-                        return self.documents
-                
-                if not unique_combined_docs:
-                    logger.warning("No documents found for combined query. QA might be uninformative.")
-                    class EmptyRetriever(BaseRetriever):
-                        class Config:
-                            arbitrary_types_allowed = True
-                        def _get_relevant_documents(self, query: str, *, run_manager: CallbackManagerForRetrieverRun) -> List[Document]:
-                            return []
-                        async def _aget_relevant_documents(self, query: str, *, run_manager: AsyncCallbackManagerForRetrieverRun) -> List[Document]:
-                            return []
-                    return EmptyRetriever()
-                else:
-                    return CustomRetriever(documents=unique_combined_docs)
+                unique_combined_docs = self._combine_and_deduplicate_docs(original_docs, translated_docs)[:10]
+                return self._create_custom_retriever_instance(unique_combined_docs)
             else: # Fallback to original behavior if no translation
-                retriever = self.vector_store.get_retriever(k=6)
+                retriever = self.vector_store.get_retriever(k=10)
                 if not retriever:
                     logger.error("Failed to get default retriever from vector store.")
                     raise ValueError("Retriever not available.")
@@ -202,7 +204,7 @@ Standalone question:"""
             logger.error(f"Error creating custom retriever: {e}", exc_info=True)
             # Fallback to a simple retriever on error
             try:
-                retriever = self.vector_store.get_retriever(k=3) # Reduced k for fallback
+                retriever = self.vector_store.get_retriever(k=5) # Reduced k for fallback
                 if not retriever:
                     raise ValueError("Fallback retriever also failed.")
                 logger.warning("Fell back to a simple retriever due to an error in custom retriever creation.")
@@ -210,12 +212,7 @@ Standalone question:"""
             except Exception as fallback_e:
                 logger.error(f"Critical error: Could not create any retriever: {fallback_e}", exc_info=True)
                 # Return an empty retriever as a last resort
-                class EmptyRetriever(BaseRetriever):
-                    class Config:
-                        arbitrary_types_allowed = True
-                    def _get_relevant_documents(self, query: str, *, run_manager: CallbackManagerForRetrieverRun) -> List[Document]: return []
-                    async def _aget_relevant_documents(self, query: str, *, run_manager: AsyncCallbackManagerForRetrieverRun) -> List[Document]: return []
-                return EmptyRetriever()
+                return self._create_custom_retriever_instance([])
 
     def _create_conversational_qa_chain(self, retriever: BaseRetriever, chat_history_for_memory: List[Tuple[str, str]]):
         """Create the ConversationalRetrievalChain."""
@@ -421,7 +418,7 @@ Standalone question:"""
             logger.error(f"Error retrieving documents: {str(e)}")
             return []
     
-    def get_documents_for_query(self, query: str, k: int = 3) -> List[str]:
+    def get_documents_for_query(self, query: str, k: int = 10) -> List[str]:
         """
         Get relevant document file paths for a query.
         Handles potential translation for Indonesian queries.
@@ -445,11 +442,11 @@ Standalone question:"""
             relevant_docs = []
             # Use the vector_store's similarity search directly here.
             # The k value here is for how many docs to fetch per query (original/translated)
-            docs_orig = self.vector_store.similarity_search(original_query, k=k) 
+            docs_orig = self.vector_store.similarity_search(original_query, k=10) 
             relevant_docs.extend(docs_orig)
             
             if translated_query_for_retrieval:
-                docs_trans = self.vector_store.similarity_search(translated_query_for_retrieval, k=k)
+                docs_trans = self.vector_store.similarity_search(translated_query_for_retrieval, k=10)
                 relevant_docs.extend(docs_trans)
             
             source_file_paths = set()
