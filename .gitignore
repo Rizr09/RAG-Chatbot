@@ -22,6 +22,8 @@ chroma_db/
 
 # Documents (PDFs and source materials)
 documents/
+documents_main/
+documents_retrieval/
 
 # Logs
 *.log

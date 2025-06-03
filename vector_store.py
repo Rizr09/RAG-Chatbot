@@ -54,7 +54,7 @@ class VectorStore:
     
     def add_documents(self, documents: List[Document]) -> None:
         """
-        Add documents to the vector store.
+        Add documents to the vector store in batches.
         
         Args:
             documents: List of documents to add
@@ -64,9 +64,16 @@ class VectorStore:
             return
         
         try:
-            # Add documents to vector store
-            self.vectorstore.add_documents(documents)
-            logger.info(f"Added {len(documents)} documents to vector store")
+            # Define a batch size
+            batch_size = 4000 # Max was 5461, using a safer margin
+            num_documents = len(documents)
+            
+            for i in range(0, num_documents, batch_size):
+                batch = documents[i:i + batch_size]
+                self.vectorstore.add_documents(batch)
+                logger.info(f"Added batch of {len(batch)} documents to vector store. {i + len(batch)}/{num_documents} processed.")
+            
+            logger.info(f"Successfully added all {num_documents} documents to vector store in batches.")
             
         except Exception as e:
             logger.error(f"Error adding documents to vector store: {str(e)}")
