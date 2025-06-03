@@ -2,15 +2,19 @@
 RAG (Retrieval-Augmented Generation) system using Gemini 2.5 Pro.
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 import google.generativeai as genai
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.chains import RetrievalQA
-from langchain.prompts import PromptTemplate
+from langchain.chains import ConversationalRetrievalChain
+from langchain.chains.question_answering import load_qa_chain
+from langchain.chains.llm import LLMChain
+from langchain.prompts import PromptTemplate, ChatPromptTemplate, HumanMessagePromptTemplate, SystemMessagePromptTemplate
 from langchain_core.tracers.schemas import Run
 from langchain_core.callbacks.manager import CallbackManagerForRetrieverRun, AsyncCallbackManagerForRetrieverRun
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
+from langchain.memory import ConversationBufferMemory, ChatMessageHistory
+from langchain_core.messages import HumanMessage, AIMessage
 import logging
 from googletrans import Translator
 import os
@@ -61,7 +65,8 @@ class RAGSystem:
         
         # Configure Gemini
         genai.configure(api_key=api_key)
-          # Initialize LLM
+        
+        # Initialize LLM
         self.llm = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash-preview-04-17",
             google_api_key=api_key,
@@ -69,15 +74,19 @@ class RAGSystem:
             max_output_tokens=2048
         )
         
-        # Create custom prompt template
-        self.prompt_template = self._create_prompt_template()
+        # Create custom prompt template for combining documents
+        self.combine_docs_prompt = self._create_combine_docs_prompt()
         
-        # Initialize retrieval chain
-        self.qa_chain = self._create_qa_chain()
-    def _create_prompt_template(self) -> PromptTemplate:
-        """Create a custom prompt template for AI and Finance research paper Q&A."""
+        # Create prompt for condensing question
+        self.condense_question_prompt = self._create_condense_question_prompt()
+
+    def _create_combine_docs_prompt(self) -> PromptTemplate:
+        """Create a custom prompt template for AI and Finance research paper Q&A, used by the combine_docs_chain."""
         
-        template = """You are an expert AI and Finance Research Analyst. Your primary goal is to assist users by either answering their questions based on the provided `Context` or by providing them with the relevant documents if their query indicates a request for the document itself.
+        template = """You are an expert AI and Finance Research Analyst. Your primary goal is to assist users by either answering their questions based on the provided `Context` or by providing them with the relevant documents if their query indicates a request for the document itself. Use the `Chat History` to understand the context of the conversation.
+
+**Chat History:**
+{chat_history}
 
 **Response Modes:**
 
@@ -90,13 +99,14 @@ class RAGSystem:
     *   If you judge that the user's query is primarily a request *for* one or more documents, papers, or files themselves (e.g., "send me the paper on X", "can I get the document about Y?", "find the report on Z and related articles"), then you MUST respond *ONLY* with a single JSON object in the following exact format. Do not add any text before or after this JSON object:
 
 ```json
-{{  "intent": "provide_document",
-  "search_query_for_docs": "<keywords you determine are best for finding the requested document(s)>",
-  "user_message": "<a short, friendly message for the user, e.g., 'Certainly, I found the following document(s) related to your request for X:'>"
+{{
+  "intent": "provide_document",
+  "search_query_for_docs": "<keywords you determine are best for finding the requested document(s), considering the chat history and current question>",
+  "user_message": "<a short, friendly message for the user, e.g., 'Certainly, I found the following document(s) related to your request for X (based on our conversation):'>"
 }}
 ```
 
-            *   The `search_query_for_docs` should be your best assessment of the core subject of the document(s) the user wants.
+            *   The `search_query_for_docs` should be your best assessment of the core subject of the document(s) the user wants, considering the full conversation.
 
 **Detailed Answering Instructions (for Answering Mode):**
 *   **Context Reliance:** Your entire response must be derived *solely* from the provided `Context`.
@@ -117,48 +127,52 @@ class RAGSystem:
 **Answer:**
 """ # Ensure no stray characters after this final triple quote.
         
-        # The input_variables should ONLY be 'context' and 'question' as used in the template for substitution.
         return PromptTemplate(
             template=template,
-            input_variables=["context", "question"] # Strictly 'context' and 'question'
+            input_variables=["chat_history", "context", "question"]
         )
-    
-    def _create_qa_chain(self, translated_question_for_retrieval: str = None, original_question: str = None):
-        """Create the QA retrieval chain."""
+
+    def _create_condense_question_prompt(self) -> PromptTemplate:
+        """Create a prompt template for condensing the current question and chat history into a standalone question."""
+        template = """Given the following conversation and a follow up question, rephrase the follow up question to be a standalone question, in its original language.
+
+Chat History:
+{chat_history}
+
+Follow Up Input: {question}
+Standalone question:"""
+        return PromptTemplate.from_template(template)
+
+    def _get_custom_retriever(self, translated_question_for_retrieval: str = None, original_question: str = None) -> BaseRetriever:
+        """
+        Creates a custom retriever that combines results from original and translated queries.
+        """
         try:
-            # Use a combined query for document retrieval if a translated query is provided
-            # This helps fetch documents that might match either the original or translated query
             if translated_question_for_retrieval and original_question:
-                # Retrieve documents for original and translated queries separately
-                # and combine them, removing duplicates.
-                # We ask for more documents (k=5 for each) to increase recall before combining.
-                # Ensure retriever itself is valid before calling get_relevant_documents
                 base_retriever_orig = self.vector_store.get_retriever(k=5)
                 base_retriever_trans = self.vector_store.get_retriever(k=5)
 
                 original_docs = []
                 if base_retriever_orig:
-                    original_docs = base_retriever_orig.get_relevant_documents(original_question)
+                    # Use invoke for newer Langchain versions if get_relevant_documents is deprecated
+                    original_docs = base_retriever_orig.invoke(original_question)
                 
                 translated_docs = []
                 if base_retriever_trans:
-                    translated_docs = base_retriever_trans.get_relevant_documents(translated_question_for_retrieval)
+                    translated_docs = base_retriever_trans.invoke(translated_question_for_retrieval)
 
-                # Combine and deduplicate documents based on content and source_file to avoid redundant context
                 combined_docs_dict = {}
                 for doc in original_docs + translated_docs:
                     doc_key = (doc.page_content, doc.metadata.get('source_file'), doc.metadata.get('page'))
                     if doc_key not in combined_docs_dict:
                         combined_docs_dict[doc_key] = doc
                 
-                unique_combined_docs = list(combined_docs_dict.values())[:6] # Keep up to 6 unique docs
+                unique_combined_docs = list(combined_docs_dict.values())[:6]
 
-                # Create a custom retriever from these unique combined documents
-                # Langchain's retriever interface expects get_relevant_documents and aget_relevant_documents
-                class CustomRetriever(BaseRetriever): # Inherit from BaseRetriever
+                class CustomRetriever(BaseRetriever):
                     documents: List[Document]
 
-                    class Config: # Add Pydantic config for arbitrary types
+                    class Config:
                         arbitrary_types_allowed = True
                         
                     def _get_relevant_documents(self, query: str, *, run_manager: CallbackManagerForRetrieverRun) -> List[Document]:
@@ -166,10 +180,8 @@ class RAGSystem:
                     async def _aget_relevant_documents(self, query: str, *, run_manager: AsyncCallbackManagerForRetrieverRun) -> List[Document]:
                         return self.documents
                 
-                if not unique_combined_docs: # If no documents found, use a retriever that returns nothing
+                if not unique_combined_docs:
                     logger.warning("No documents found for combined query. QA might be uninformative.")
-                    # Fallback to an empty retriever or handle as an error condition.
-                    # For now, let's create a retriever that returns an empty list.
                     class EmptyRetriever(BaseRetriever):
                         class Config:
                             arbitrary_types_allowed = True
@@ -177,48 +189,79 @@ class RAGSystem:
                             return []
                         async def _aget_relevant_documents(self, query: str, *, run_manager: AsyncCallbackManagerForRetrieverRun) -> List[Document]:
                             return []
-                    retriever = EmptyRetriever()
-
+                    return EmptyRetriever()
                 else:
-                    retriever = CustomRetriever(documents=unique_combined_docs)
-
-
+                    return CustomRetriever(documents=unique_combined_docs)
             else: # Fallback to original behavior if no translation
                 retriever = self.vector_store.get_retriever(k=6)
+                if not retriever:
+                    logger.error("Failed to get default retriever from vector store.")
+                    raise ValueError("Retriever not available.")
+                return retriever
+        except Exception as e:
+            logger.error(f"Error creating custom retriever: {e}", exc_info=True)
+            # Fallback to a simple retriever on error
+            try:
+                retriever = self.vector_store.get_retriever(k=3) # Reduced k for fallback
+                if not retriever:
+                    raise ValueError("Fallback retriever also failed.")
+                logger.warning("Fell back to a simple retriever due to an error in custom retriever creation.")
+                return retriever
+            except Exception as fallback_e:
+                logger.error(f"Critical error: Could not create any retriever: {fallback_e}", exc_info=True)
+                # Return an empty retriever as a last resort
+                class EmptyRetriever(BaseRetriever):
+                    class Config:
+                        arbitrary_types_allowed = True
+                    def _get_relevant_documents(self, query: str, *, run_manager: CallbackManagerForRetrieverRun) -> List[Document]: return []
+                    async def _aget_relevant_documents(self, query: str, *, run_manager: AsyncCallbackManagerForRetrieverRun) -> List[Document]: return []
+                return EmptyRetriever()
 
-            if not retriever:
-                logger.error("Failed to get retriever from vector store or custom retriever creation failed")
-                return None
-            
-            qa_chain = RetrievalQA.from_chain_type(
+    def _create_conversational_qa_chain(self, retriever: BaseRetriever, chat_history_for_memory: List[Tuple[str, str]]):
+        """Create the ConversationalRetrievalChain."""
+        try:
+            # Memory for the conversation
+            # We re-create it for each call to ensure it's per-user and reset on new sessions.
+            # The `chat_history_massages` from Streamlit will be used to populate this.
+            # However, ConversationalRetrievalChain manages its own memory internally if we pass chat_history.
+            # Let's simplify and pass the history directly to the chain.
+
+            # Document combining chain
+            combine_docs_chain = load_qa_chain(
                 llm=self.llm,
-                chain_type="stuff",
-                retriever=retriever,
-                chain_type_kwargs={
-                    "prompt": self.prompt_template,
-                    "document_variable_name": "context"
-                },
-                return_source_documents=True            )
+                chain_type="stuff", # "stuff" is good for relatively small contexts
+                prompt=self.combine_docs_prompt,
+                document_variable_name="context" # Ensure this matches the prompt
+            )
+
+            # Question generator chain
+            question_generator_chain = LLMChain(
+                llm=self.llm,
+                prompt=self.condense_question_prompt
+            )
             
-            logger.info("QA chain created successfully")
+            qa_chain = ConversationalRetrievalChain(
+                retriever=retriever,
+                combine_docs_chain=combine_docs_chain,
+                question_generator=question_generator_chain,
+                return_source_documents=True,
+                # memory=memory, # We will pass chat_history directly
+            )
+            logger.info("ConversationalRetrievalChain created successfully")
             return qa_chain
             
         except Exception as e:
-            logger.error(f"Error creating QA chain: {str(e)}")
+            logger.error(f"Error creating ConversationalRetrievalChain: {str(e)}", exc_info=True)
             return None
-    
-    def _reinitialize_qa_chain(self, translated_question_for_retrieval: str = None, original_question: str = None):
-        """Reinitialize the QA chain if it failed initially."""
-        # Always recreate the chain if we might need a new retriever strategy (e.g., due to translation)
-        self.qa_chain = self._create_qa_chain(translated_question_for_retrieval=translated_question_for_retrieval, original_question=original_question)
-    
-    def ask_question(self, question: str) -> Dict[str, Any]:
+
+    def answer_conversational(self, question: str, chat_history_messages: List[Dict[str, str]]) -> Dict[str, Any]:
         """
-        Ask a question and get an answer with sources, or get document paths if LLM decides so.
-        Handles potential translation for Indonesian questions.
+        Answer a question using conversational context.
         
         Args:
-            question: The question to ask
+            question: The current question from the user.
+            chat_history_messages: A list of dictionaries, where each dict has "role" and "content".
+                                  e.g., [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
             
         Returns:
             Dictionary containing answer and source documents, or document paths and user message.
@@ -241,35 +284,58 @@ class RAGSystem:
             except Exception as e:
                 logger.warning(f"Language detection/translation for input query failed: {e}. Proceeding with original question for retrieval if needed.")
 
-            # Reinitialize QA chain, potentially with a combined retriever strategy based on translated query
-            self._reinitialize_qa_chain(translated_question_for_retrieval=translated_question_for_retrieval, original_question=original_question)
+            # Prepare retriever
+            retriever = self._get_custom_retriever(
+                translated_question_for_retrieval=translated_question_for_retrieval,
+                original_question=original_question
+            )
+
+            # Convert Streamlit chat history to Langchain's expected format (list of tuples for ConversationalRetrievalChain)
+            # Or list of BaseMessage objects if using memory more directly
+            formatted_chat_history = []
+            for msg in chat_history_messages:
+                if msg["role"] == "user":
+                    formatted_chat_history.append((msg["content"], "")) # User query
+                elif msg["role"] == "assistant":
+                    # Find the preceding user message to pair with this assistant message
+                    if formatted_chat_history and formatted_chat_history[-1][1] == "":
+                        last_user_query = formatted_chat_history.pop()[0]
+                        formatted_chat_history.append((last_user_query, msg["content"]))
+                    else: # Should not happen if history is well-formed user-assistant pairs
+                        formatted_chat_history.append(("", msg["content"])) # Or handle as error
+
+
+            # Create or get the conversational chain
+            # The chain needs to be (re)created with the potentially new retriever strategy
+            conversational_chain = self._create_conversational_qa_chain(retriever, formatted_chat_history)
             
-            if not self.qa_chain:
+            if not conversational_chain:
                 return {
-                    "type": "error", # Added type for clarity
-                    "answer": "The RAG system is not properly initialized. Please check the setup.",
+                    "type": "error",
+                    "answer": "The RAG system's conversational chain could not be initialized. Please check the setup.",
                     "source_documents": [],
-                    "error": "QA chain not available"
+                    "error": "Conversational chain not available"
                 }
             
-            # The 'query' to RetrievalQA should be the one the LLM sees and answers.
-            # If original was Indonesian, we use that, as per prompt instructions for language handling.
-            llm_query = original_question
-            llm_response_raw = self.qa_chain.invoke({"query": llm_query})
+            # Invoke the chain with the current question and chat history
+            # The `question` is the current user utterance.
+            # `chat_history` is the history of (human_message, ai_message) tuples.
+            llm_response_raw = conversational_chain.invoke({
+                "question": original_question, # Pass the original question
+                "chat_history": formatted_chat_history
+            })
             
-            raw_answer_text = llm_response_raw.get("result", "").strip()
+            raw_answer_text = llm_response_raw.get("answer", "").strip() # 'answer' is the key from ConversationalRetrievalChain
             source_documents_from_chain = llm_response_raw.get("source_documents", [])
 
             # Attempt to parse the LLM's response as JSON for document provisioning intent
             try:
                 potential_json_str = raw_answer_text
-                # If the LLM includes markdown ```json ... ```, try to extract it.
                 if raw_answer_text.startswith("```json"):
                     potential_json_str = raw_answer_text.split("```json", 1)[1].rsplit("```", 1)[0].strip()
                 elif raw_answer_text.startswith("```") and raw_answer_text.endswith("```"):
                     potential_json_str = raw_answer_text[3:-3].strip()
                 
-                # More general extraction if it's just embedded
                 json_start_index = potential_json_str.find('{')
                 json_end_index = potential_json_str.rfind('}')
 
@@ -277,11 +343,11 @@ class RAGSystem:
                     extracted_json_str = potential_json_str[json_start_index : json_end_index+1]
                     llm_output_json = json.loads(extracted_json_str)
                     if isinstance(llm_output_json, dict) and llm_output_json.get("intent") == "provide_document":
-                        search_query_for_docs = llm_output_json.get("search_query_for_docs", original_question)
-                        user_message = llm_output_json.get("user_message", "Here are the documents I found:")
+                        search_query_for_docs = llm_output_json.get("search_query_for_docs", original_question) # Fallback to original question if not specified
+                        user_message = llm_output_json.get("user_message", "Here are the documents I found based on our conversation:")
                         
                         logger.info(f"LLM signaled 'provide_document' intent. Search query for docs: '{search_query_for_docs}'")
-                        document_paths = self.get_documents_for_query(search_query_for_docs, k=3)
+                        document_paths = self.get_documents_for_query(search_query_for_docs, k=3) # Use the dedicated method
                         
                         return {
                             "type": "documents",
@@ -290,22 +356,18 @@ class RAGSystem:
                             "query_used_for_retrieval": search_query_for_docs
                         }
                     else:
-                        # Parsed JSON but not the expected intent, treat as normal answer (or part of an answer)
                         logger.info("Parsed JSON from LLM but not 'provide_document' intent. Proceeding with Answering Mode.")
-                        raise json.JSONDecodeError("JSON parsed but not provide_document intent", extracted_json_str, 0) # Force fallback
+                        raise json.JSONDecodeError("JSON parsed but not provide_document intent", extracted_json_str, 0)
                 else:
-                    # No clear JSON block found
                     logger.info(f"No JSON block found in LLM response: '{raw_answer_text[:100]}...'. Proceeding with Answering Mode.")
-                    raise json.JSONDecodeError("No JSON block found", raw_answer_text, 0) # Force fallback
+                    raise json.JSONDecodeError("No JSON block found", raw_answer_text, 0)
 
             except json.JSONDecodeError:
                 logger.info(f"LLM response ('{raw_answer_text[:100]}...') is not the expected provide_document JSON. Proceeding with Answering Mode.")
-            # Fall-through to Answering Mode if JSON parsing/intent matching failed
+            # Fall-through to Answering Mode
 
-            # If not provide_document intent, proceed as Answering Mode
-            answer = raw_answer_text # This will be the original text if JSON parsing failed
+            answer = raw_answer_text
             
-            # If the original question was Indonesian and the answer came out in English, translate it back.
             if question_lang == 'id':
                 try:
                     detected_answer_lang_result = run_async_in_thread(self.translator.detect(answer))
@@ -319,7 +381,6 @@ class RAGSystem:
                 except Exception as e:
                     logger.warning(f"Answer translation to Indonesian failed: {e}. Returning original answer.")
             
-            # Format source information from the chain
             sources = []
             for i, doc in enumerate(source_documents_from_chain):
                 source_info = {
@@ -333,16 +394,16 @@ class RAGSystem:
             logger.info(f"Generated answer for question: {original_question[:50]}...")
             
             return {
-                "type": "answer", # Added type for clarity
+                "type": "answer",
                 "answer": answer,
                 "source_documents": sources,
-                "question": original_question
+                "question": original_question # Storing original question for context if needed by UI
             }
             
         except Exception as e:
-            logger.error(f"Error processing question in ask_question: {str(e)}", exc_info=True) # Added exc_info
+            logger.error(f"Error processing question in answer_conversational: {str(e)}", exc_info=True)
             return {
-                "type": "error", # Added type for clarity
+                "type": "error",
                 "answer": f"An error occurred while processing your question: {str(e)}",
                 "source_documents": [],
                 "error": str(e)
@@ -351,15 +412,10 @@ class RAGSystem:
     def get_relevant_documents(self, query: str, k: int = 4) -> List[Document]:
         """
         Get relevant documents for a query without generating an answer.
-        
-        Args:
-            query: Search query
-            k: Number of documents to retrieve
-            
-        Returns:
-            List of relevant documents
+        (This method might be less used now with conversational chain, but kept for direct doc search if needed)
         """
         try:
+            # This method directly uses the vector store, not the conversational chain's retriever
             return self.vector_store.similarity_search(query, k=k)
         except Exception as e:
             logger.error(f"Error retrieving documents: {str(e)}")
@@ -370,85 +426,76 @@ class RAGSystem:
         Get relevant document file paths for a query.
         Handles potential translation for Indonesian queries.
         Returns a list of unique source file paths.
-        
-        Args:
-            query: Search query
-            k: Number of documents to retrieve per language query
-            
-        Returns:
-            List of unique source file paths
+        This is used by the 'provide_document' intent.
         """
         try:
             original_query = query
             translated_query_for_retrieval = None
             
             try:
-                # Run async detection in a separate thread
                 detected_lang_result = run_async_in_thread(self.translator.detect(query))
                 detected_lang = detected_lang_result.lang
                 if detected_lang.startswith('id'):
-                    # Run async translation in a separate thread
                     translation_result = run_async_in_thread(self.translator.translate(query, src='id', dest='en'))
                     translated_query_for_retrieval = translation_result.text
-                    logger.info(f"Original (ID) for doc retrieval: '{query}', Translated (EN): '{translated_query_for_retrieval}'")
+                    logger.info(f"Original (ID) for doc path retrieval: '{query}', Translated (EN): '{translated_query_for_retrieval}'")
             except Exception as e:
-                logger.warning(f"Language detection/translation for doc retrieval failed: {e}. Proceeding with original query.")
+                logger.warning(f"Language detection/translation for doc path retrieval failed: {e}. Proceeding with original query.")
 
             relevant_docs = []
-            # Retrieve for original query
-            docs_orig = self.vector_store.similarity_search(original_query, k=k)
+            # Use the vector_store's similarity search directly here.
+            # The k value here is for how many docs to fetch per query (original/translated)
+            docs_orig = self.vector_store.similarity_search(original_query, k=k) 
             relevant_docs.extend(docs_orig)
             
-            # Retrieve for translated query if available
             if translated_query_for_retrieval:
                 docs_trans = self.vector_store.similarity_search(translated_query_for_retrieval, k=k)
                 relevant_docs.extend(docs_trans)
             
-            # Extract unique source file paths
             source_file_paths = set()
             for doc in relevant_docs:
                 if doc.metadata and 'source_path' in doc.metadata:
                     source_file_paths.add(doc.metadata['source_path'])
-                elif doc.metadata and 'source_file' in doc.metadata: # Fallback to source_file if source_path not present
-                    # This assumes source_file is just the filename, may need adjustment if it's a path
-                    # For now, we'll log a warning if we have to use this and it's not an absolute path
-                    if os.path.isabs(doc.metadata['source_file']):
-                        source_file_paths.add(doc.metadata['source_file'])
-                    else:
-                        # If it's a relative path or just a filename, we need to decide how to make it accessible
-                        # For now, let's assume it's relative to a known documents directory if not absolute.
-                        # This part might need to be more robust depending on how `source_file` is populated.
-                        logger.warning(f"Using non-absolute 'source_file' metadata: {doc.metadata['source_file']}. Its usability depends on context.")
-                        # Attempt to construct a path assuming it's a filename in a known directory
-                        # For this example, let's assume `documents_retrieval` is the base. This is a simplification.
-                        # A more robust solution would ensure `source_path` is always populated correctly.
-                        potential_path = os.path.join(".", "documents_retrieval", doc.metadata['source_file']) 
-                        if os.path.exists(potential_path):
-                           source_file_paths.add(potential_path)
+                elif doc.metadata and 'source_file' in doc.metadata:
+                    source_file_path = doc.metadata['source_file']
+                    # Attempt to make it a full path if it's just a filename.
+                    # This logic assumes documents are in a specific directory if path isn't absolute.
+                    if not os.path.isabs(source_file_path):
+                        # Assuming 'documents_retrieval' as the base, adjust if necessary.
+                        # This path needs to be consistent with where Streamlit expects to find files for download.
+                        resolved_path = os.path.join(".", "documents_retrieval", os.path.basename(source_file_path))
+                        if os.path.exists(resolved_path):
+                            source_file_paths.add(resolved_path)
                         else:
-                           logger.warning(f"Could not resolve path for source_file: {doc.metadata['source_file']}")
-
-            if not source_file_paths and relevant_docs: # If we have docs but no paths
+                            logger.warning(f"Could not resolve relative source_file to an existing path: {source_file_path} (tried {resolved_path})")
+                    else:
+                        source_file_paths.add(source_file_path)
+            
+            if not source_file_paths and relevant_docs:
                 logger.warning("Found relevant documents but could not extract source paths.")
 
-            logger.info(f"Found {len(source_file_paths)} unique document(s) for query: {query[:50]}...")
+            logger.info(f"Found {len(source_file_paths)} unique document path(s) for query: {query[:50]}...")
             return list(source_file_paths)
             
         except Exception as e:
-            logger.error(f"Error retrieving document paths: {str(e)}")
+            logger.error(f"Error retrieving document paths in get_documents_for_query: {str(e)}", exc_info=True)
             return []
     
-    def chat_with_context(self, question: str, conversation_history: List[Dict] = None) -> Dict[str, Any]:
+    def chat_with_context(self, question: str, conversation_history: List[Dict[str, str]] = None) -> Dict[str, Any]:
         """
         Chat with context from previous conversation.
+        This is the main entry point for the Streamlit app.
         
         Args:
             question: Current question
-            conversation_history: Previous conversation history
+            conversation_history: List of message dicts [{"role": "user/assistant", "content": "..."}]
             
         Returns:
             Response dictionary
         """
-        # For now, treat each question independently
-        # This can be enhanced to maintain conversation context
-        return self.ask_question(question)
+        if conversation_history is None:
+            conversation_history = []
+            
+        # The conversation_history is now passed to answer_conversational
+        # which handles the ConversationalRetrievalChain and its memory aspects.
+        return self.answer_conversational(question, chat_history_messages=conversation_history)

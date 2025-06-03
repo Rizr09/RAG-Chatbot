@@ -14,6 +14,7 @@ Proyek ini adalah sistem cerdas yang menggunakan teknologi Retrieval-Augmented G
 - **Powered by Gemini API**: Ditenagai oleh model bahasa canggih dari Google (Gemini) untuk jawaban yang baik.
 - **Flexible Document Processing**: Mudah memproses (termasuk chunking) dan mengatur dokumen PDF Anda.
 - **Conversation Memory**: Menyimpan riwayat obrolan untuk konteks yang lebih baik (di Streamlit dan Telegram Bot).
+- **Chat Reset**: Menghapus memori percakapan dengan perintah `/reset`
 
 ## Yang Anda Perlukan (Prerequisites)
 
@@ -87,9 +88,9 @@ python telegram_bot.py
 
 ### Contoh Pertanyaan (Bisa untuk Web App atau Telegram Bot)
 
--   "jelaskan tentang [topik dari dokumen Anda]"
--   "kirimkan saya dokumen yang membahas [subjek tertentu]"
--   "What are the main conclusions from [nama dokumen]?"
+-   "apa itu LoRA berdasarkan dokumen yang ada?"
+-   "kirim dokumennya coba" (apabila ingin coreference berdasarkan chat sebelumnya)
+-   "apa sih perbedaan sukuk dan obligasi?"
 
 ## Struktur Proyek (Project Structure)
 

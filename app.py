@@ -500,111 +500,98 @@ def main():
             # Add user message to session state
             st.session_state.messages.append({"role": "user", "content": prompt})
             
-            # Display user message immediately
-            with st.chat_message("user", avatar="🧑‍💼"):
-                st.markdown(prompt)
+            # Display user message
+            with chat_container: # Ensure it's displayed within the same container
+                with st.chat_message("user", avatar="🧑‍💼"):
+                    st.markdown(prompt)
             
-            # Display assistant message with typing indicator
-            with st.chat_message("assistant", avatar="🤖"):
-                message_placeholder = st.empty()
-                
-                # Show typing indicator with more engaging messages
-                typing_messages = [
-                    "Menganalisis permintaan Anda...",
-                    "Mencari melalui laporan pasar...", 
-                    "Memproses wawasan dari lembaga keuangan...",
-                    "Menyiapkan respons Anda..."
-                ]
-                
-                for msg in typing_messages:
-                    message_placeholder.markdown(f"*{msg}*")
-                    time.sleep(0.5) # Use time.sleep
-                
-                rag_system_instance = st.session_state.rag_system # Get from session state
-                if not rag_system_instance:
-                    st.error("Sistem RAG tidak diinisialisasi dengan benar.")
-                    # Potentially add a retry or further diagnostics here if needed
-                    st.session_state.messages.append({"role": "assistant", "content": "Error: System not initialized."})
-                    st.rerun()
-                    return # Stop further processing if system isn't ready
-
-                # The LLM now decides the intent. No more get_user_intent call here.
-                try:
-                    llm_response = rag_system_instance.ask_question(prompt)
-                    response_type = llm_response.get("type")
-
-                    if response_type == "documents":
-                        logger.info(f"LLM decided to provide documents for query: {prompt}")
-                        document_paths = llm_response.get("document_paths", [])
-                        user_message = llm_response.get("user_message", "Berikut dokumen yang relevan:")
-                        query_used_for_retrieval = llm_response.get("query_used_for_retrieval", prompt)
-                        
-                        if document_paths:
-                            st.session_state.messages.append({
-                                "role": "assistant", 
-                                "content": user_message, 
-                                "type": "document_links",
-                                "paths": document_paths,
-                                "query": query_used_for_retrieval # Store the query LLM used for clarity
-                            })
-                            message_placeholder.markdown(user_message) # Show initial confirmation
-                        else:
-                            # LLM wanted to send docs, but get_documents_for_query found none with LLM's suggested query.
-                            not_found_message = f"Saya berniat mengirimkan dokumen untuk \"**{query_used_for_retrieval}**\", tetapi tidak menemukan file yang cocok. Anda bisa coba bertanya tentang isinya atau dengan kata kunci lain?"
-                            st.session_state.messages.append({"role": "assistant", "content": not_found_message})
-                            message_placeholder.markdown(not_found_message)
-                        st.rerun() # Rerun to update the chat display
-
-                    elif response_type == "answer":
-                        logger.info(f"LLM decided to answer query: {prompt}")
-                        answer = llm_response.get("answer", "Maaf, terjadi kesalahan saat memproses permintaan Anda.")
-                        sources = llm_response.get("source_documents", [])
-                        
+            # Get RAG system response
+            rag_system = st.session_state.rag_system
+            with st.spinner("Thinking..."):
+                # Pass the entire conversation history
+                # The RAGSystem's chat_with_context now expects this directly
+                response = rag_system.chat_with_context(
+                    question=prompt, 
+                    conversation_history=st.session_state.messages[:-1] # Pass history *before* current prompt
+                )
+            
+            # Process and display assistant's response
+            with chat_container: # Ensure it's displayed within the same container
+                with st.chat_message("assistant", avatar="🤖"):
+                    if response.get("type") == "documents":
+                        # Store a message that reflects the intent to provide documents and the paths
+                        assistant_message_content = response.get("user_message", "Berikut dokumen yang relevan:")
                         st.session_state.messages.append({
                             "role": "assistant", 
-                            "content": answer,
+                            "content": assistant_message_content, # User-facing message from LLM
+                            "type": "document_links", # Custom type for Streamlit handling
+                            "paths": response.get("document_paths", [])
+                        })
+                        # Display the user-facing message
+                        st.markdown(assistant_message_content)
+                        
+                        # Offer download buttons
+                        doc_paths = response.get("document_paths", [])
+                        if doc_paths:
+                            for doc_path in doc_paths:
+                                try:
+                                    # Ensure the path is valid and the file exists
+                                    if os.path.exists(doc_path) and os.path.isfile(doc_path):
+                                        with open(doc_path, "rb") as f:
+                                            file_bytes = f.read()
+                                        file_name = os.path.basename(doc_path)
+                                        st.download_button(
+                                            label=f"📥 Unduh {file_name}",
+                                            data=file_bytes,
+                                            file_name=file_name,
+                                            mime="application/octet-stream",
+                                            key=f"download_{file_name}_{time.time()}" # Unique key
+                                        )
+                                    else:
+                                        st.error(f"File tidak ditemukan atau path tidak valid: {doc_path}")
+                                except FileNotFoundError:
+                                    st.error(f"File tidak ditemukan: {doc_path}. Mungkin file telah dipindahkan atau dihapus.")
+                                except Exception as e:
+                                    st.error(f"Gagal memuat file {doc_path} untuk diunduh: {e}")
+                            if doc_paths:
+                                st.caption("Klik tombol di atas untuk mengunduh dokumen.")
+                        else:
+                            st.markdown("Saya berniat mengirimkan dokumen, tetapi tidak ada file spesifik yang ditemukan atau dapat diakses saat ini.")
+
+                    elif response.get("type") == "answer":
+                        answer = response.get("answer", "Maaf, saya tidak bisa merespons saat ini.")
+                        sources = response.get("source_documents", [])
+                        st.session_state.messages.append({
+                            "role": "assistant", 
+                            "content": answer, 
                             "sources": sources
                         })
-                        message_placeholder.markdown(answer)
-                        st.rerun() # Rerun to update chat display
-                    
-                    elif response_type == "error":
-                        logger.error(f"Received error from RAG system for query '{prompt}': {llm_response.get('error')}")
-                        error_msg = llm_response.get("answer", "Terjadi kesalahan internal.") # Use answer field which contains error for user
-                        st.session_state.messages.append({"role": "assistant", "content": error_msg})
-                        message_placeholder.markdown(error_msg)
-                        st.rerun()
+                        st.markdown(answer)
+                        if sources:
+                            with st.expander(f"📄 View Sources ({len(sources)} documents)", expanded=False):
+                                for i, source in enumerate(sources):
+                                    st.markdown(f"""
+                                    <div class="source-document">
+                                        <div class="source-header">📋 Source {i+1}: {source.get('source_file', 'Unknown')} (Page: {source.get('page', 'N/A')})</div>
+                                        <div style="margin-top: 0.5rem; line-height: 1.5;">{source.get('content', 'No content available')}</div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    
+                    elif response.get("type") == "error":
+                        error_message = response.get("answer", "Terjadi kesalahan internal.")
+                        st.session_state.messages.append({"role": "assistant", "content": error_message, "type": "error"})
+                        st.error(error_message)
+                        
+                    else: # Fallback for any other response type or if type is missing
+                        unknown_response_content = str(response) # Display the whole response if its structure is unexpected
+                        st.session_state.messages.append({"role": "assistant", "content": unknown_response_content, "type": "unknown"})
+                        st.warning(f"Menerima respons yang tidak dikenal: {unknown_response_content}")
+            
+            # Rerun to update the chat display immediately after processing
+            st.rerun()
 
-                    else: # Fallback for unknown response type
-                        logger.warning(f"Unknown response type from RAG system: {response_type}")
-                        fallback_msg = "Maaf, saya menerima respons yang tidak terduga dari sistem."
-                        st.session_state.messages.append({"role": "assistant", "content": fallback_msg})
-                        message_placeholder.markdown(fallback_msg)
-                        st.rerun()
-
-                except Exception as e:
-                    error_msg = f"Maaf, terjadi kendala saat memproses permintaan Anda: {str(e)}"
-                    logger.error(f"Error processing prompt '{prompt}': {e}", exc_info=True)
-                    st.session_state.messages.append({"role": "assistant", "content": error_msg})
-                    message_placeholder.markdown(error_msg)
-                    st.rerun() # Rerun to show error
-    
     else:
-        st.warning("Please wait for the system to initialize, or check the error messages in the sidebar.")
-        
-        # Show getting started information
-        st.markdown("""
-        ### Getting Started
-        
-        1. **Documents**: Make sure your PDF research papers (AI, Finance, etc.) are in the `./documents_retrieval/` folder.
-        2. **API Key**: Ensure your Gemini API key is set in the `.env` file.
-        3. **Initialization**: The system will automatically process documents on first run.
-        
-        ### Supported Document Types
-        - Academic papers on Artificial Intelligence
-        - Research articles on Financial theories and markets
-        - Technical documents related to AI/ML models in finance
-        """)
+        st.warning("RAG system is not initialized. Please check logs or .env configuration.")
 
 if __name__ == "__main__":
     main()
