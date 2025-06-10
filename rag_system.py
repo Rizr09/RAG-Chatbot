@@ -139,7 +139,7 @@ Follow Up Input: {question}
 Standalone question:"""
         return PromptTemplate.from_template(template)
 
-    def _get_retriever_for_query(self, query: str, k: int) -> List[Document]:
+    def _get_retriever_for_query(self, query: str, k: int = 5) -> List[Document]:
         """Helper to get documents for a single query."""
         retriever = self.vector_store.get_retriever(k=k)
         if retriever:
@@ -189,13 +189,13 @@ Standalone question:"""
         """
         try:
             if translated_question_for_retrieval and original_question:
-                original_docs = self._get_retriever_for_query(original_question, k=10)
-                translated_docs = self._get_retriever_for_query(translated_question_for_retrieval, k=10)
+                original_docs = self._get_retriever_for_query(original_question, k=5)
+                translated_docs = self._get_retriever_for_query(translated_question_for_retrieval, k=5)
                 
-                unique_combined_docs = self._combine_and_deduplicate_docs(original_docs, translated_docs)[:10]
+                unique_combined_docs = self._combine_and_deduplicate_docs(original_docs, translated_docs)[:5]
                 return self._create_custom_retriever_instance(unique_combined_docs)
             else: # Fallback to original behavior if no translation
-                retriever = self.vector_store.get_retriever(k=10)
+                retriever = self.vector_store.get_retriever(k=5)
                 if not retriever:
                     logger.error("Failed to get default retriever from vector store.")
                     raise ValueError("Retriever not available.")
@@ -344,7 +344,7 @@ Standalone question:"""
                         user_message = llm_output_json.get("user_message", "Here are the documents I found based on our conversation:")
                         
                         logger.info(f"LLM signaled 'provide_document' intent. Search query for docs: '{search_query_for_docs}'")
-                        document_paths = self.get_documents_for_query(search_query_for_docs, k=3) # Use the dedicated method
+                        document_paths = self.get_documents_for_query(search_query_for_docs, k=5) # Use the dedicated method
                         
                         return {
                             "type": "documents",
@@ -406,7 +406,7 @@ Standalone question:"""
                 "error": str(e)
             }
     
-    def get_relevant_documents(self, query: str, k: int = 4) -> List[Document]:
+    def get_relevant_documents(self, query: str, k: int = 5) -> List[Document]:
         """
         Get relevant documents for a query without generating an answer.
         (This method might be less used now with conversational chain, but kept for direct doc search if needed)
@@ -418,7 +418,7 @@ Standalone question:"""
             logger.error(f"Error retrieving documents: {str(e)}")
             return []
     
-    def get_documents_for_query(self, query: str, k: int = 10) -> List[str]:
+    def get_documents_for_query(self, query: str, k: int = 5) -> List[str]:
         """
         Get relevant document file paths for a query.
         Handles potential translation for Indonesian queries.
@@ -442,11 +442,11 @@ Standalone question:"""
             relevant_docs = []
             # Use the vector_store's similarity search directly here.
             # The k value here is for how many docs to fetch per query (original/translated)
-            docs_orig = self.vector_store.similarity_search(original_query, k=10) 
+            docs_orig = self.vector_store.similarity_search(original_query, k=5) 
             relevant_docs.extend(docs_orig)
             
             if translated_query_for_retrieval:
-                docs_trans = self.vector_store.similarity_search(translated_query_for_retrieval, k=10)
+                docs_trans = self.vector_store.similarity_search(translated_query_for_retrieval, k=5)
                 relevant_docs.extend(docs_trans)
             
             source_file_paths = set()

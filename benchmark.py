@@ -31,10 +31,10 @@ def main():
         print(f"   • Terindeks {vector_store.get_collection_count()} chunk teks")
 
     # 4) Sample query untuk benchmark
-    sample_query = "Bagaimana undang-undang mengatur penggunaan data pribadi oleh penyelenggara sistem elektronik di Indonesia?"
+    sample_query = "Apakah sudah ada UU yang membahas perlindungan data pribadi anak?"
 
     # 5) Warm-up
-    _ = vector_store.similarity_search_with_score(sample_query, k=6)
+    _ = vector_store.similarity_search_with_score(sample_query, k=10)
     _ = rag_system.answer_conversational(sample_query, [])
 
     # 6) Benchmarking
@@ -45,7 +45,7 @@ def main():
     for i in range(n_runs):
         t0 = time.time()
         # retrieval saja
-        _ = vector_store.similarity_search_with_score(sample_query, k=6)
+        _ = vector_store.similarity_search_with_score(sample_query, k=10)
         t1 = time.time()
         # full RAG QA
         _ = rag_system.answer_conversational(sample_query, [])
