@@ -330,7 +330,14 @@ Pertanyaan mandiri:"""
             answer = raw_answer_text
             
             sources = []
+            source_filenames = set() # Use a set to store unique filenames
             for i, doc in enumerate(source_documents_from_chain):
+                source_file = doc.metadata.get("source_file")
+                if source_file:
+                    # Get filename without extension
+                    filename_without_ext = os.path.splitext(os.path.basename(source_file))[0]
+                    source_filenames.add(filename_without_ext)
+
                 source_info = {
                     "content": doc.page_content[:300] + "..." if len(doc.page_content) > 300 else doc.page_content,
                     "metadata": doc.metadata,
@@ -338,6 +345,9 @@ Pertanyaan mandiri:"""
                     "page": doc.metadata.get("page", "Unknown")
                 }
                 sources.append(source_info)
+
+            if source_filenames:
+                answer += "\n\nsumber:\n" + "\n".join(sorted(list(source_filenames)))
             
             logger.info(f"Generated answer for question: {question[:50]}...")
             
