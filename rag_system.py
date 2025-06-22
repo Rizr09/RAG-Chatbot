@@ -13,39 +13,11 @@ from langchain_core.callbacks.manager import CallbackManagerForRetrieverRun, Asy
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
 import logging
-from googletrans import Translator
-import asyncio
-import threading # Added for running async calls in a separate thread
 import json # Added for parsing LLM output
 import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Helper function to run an async coroutine in a separate thread with its own event loop
-def run_async_in_thread(coro):
-    result = None
-    exception = None
-
-    def target():
-        nonlocal result, exception
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            result = loop.run_until_complete(coro)
-            loop.close()
-        except Exception as e:
-            exception = e
-
-    thread = threading.Thread(target=target)
-    thread.start()
-    thread.join() # Wait for the thread to complete
-
-    if exception:
-        # Log the exception or handle it as needed before raising
-        logger.error(f"Exception in async thread: {exception}")
-        raise exception
-    return result
 
 class RAGSystem:
     def __init__(self, api_key: str, vector_store):
@@ -58,7 +30,6 @@ class RAGSystem:
         """
         self.api_key = api_key
         self.vector_store = vector_store
-        self.translator = Translator()
         
         # Configure Gemini
         genai.configure(api_key=api_key)
@@ -80,7 +51,11 @@ class RAGSystem:
     def _create_combine_docs_prompt(self) -> PromptTemplate:
         """Create a custom prompt template for AI and Finance research paper Q&A, used by the combine_docs_chain."""
         
-        template = """Anda adalah seorang ahli di bidang Hukum Telekomunikasi, Informatika, Siber, dan Internet di Indonesia. Tujuan utama Anda adalah membantu pengguna dengan menjawab pertanyaan mereka berdasarkan `Konteks` yang diberikan, atau dengan menyediakan dokumen yang relevan jika permintaan mereka mengindikasikan permintaan untuk dokumen itu sendiri. Gunakan `Riwayat Obrolan` untuk memahami konteks percakapan.
+        template = """Anda adalah seorang ahli multibahasa di bidang Hukum Telekomunikasi, Informatika, Siber, dan Internet di Indonesia. Tujuan utama Anda adalah membantu pengguna dengan menjawab pertanyaan mereka berdasarkan `Konteks` yang diberikan, atau dengan menyediakan dokumen yang relevan jika permintaan mereka mengindikasikan permintaan untuk dokumen itu sendiri. Gunakan `Riwayat Obrolan` untuk memahami konteks percakapan.
+
+**PENTING: Deteksi Bahasa dan Respons**
+- **Deteksi bahasa dari `Pertanyaan` pengguna.**
+- **Jawab dalam bahasa yang SAMA dengan bahasa `Pertanyaan` pengguna.** Misalnya, jika pertanyaan dalam Bahasa Inggris, jawab dalam Bahasa Inggris. Jika dalam Bahasa Indonesia, jawab dalam Bahasa Indonesia.
 
 **Mode Respons:**
 
@@ -90,27 +65,27 @@ class RAGSystem:
     *   Ikuti instruksi menjawab terperinci di bawah ini.
 
 2.  **Mode Penyediaan Dokumen:**
-    *   Jika Anda menilai bahwa permintaan pengguna adalah permintaan *untuk* satu atau lebih dokumen, makalah, atau file itu sendiri (misalnya, "kirimkan saya peraturan tentang X", "bisakah saya mendapatkan undang-undang tentang Y?", "temukan kebijakan internet tentang Z dan pasal-pasal terkait"), maka Anda HARUS merespons *HANYA* dengan satu objek JSON dalam format yang sama persis berikut ini. Jangan menambahkan teks apa pun sebelum atau sesudah objek JSON ini:
+    *   Jika Anda menilai bahwa permintaan pengguna adalah permintaan *untuk* satu atau lebih dokumen, makalah, atau file itu sendiri (misalnya, "kirimkan saya peraturan tentang X", "can I get the law about Y?", "temukan kebijakan internet tentang Z dan pasal-pasal terkait"), maka Anda HARUS merespons *HANYA* dengan satu objek JSON dalam format yang sama persis berikut ini. Jangan menambahkan teks apa pun sebelum atau sesudah objek JSON ini:
     *   **PENTING**: Jika pengguna meminta dokumen yang sangat spesifik (misalnya, dengan menyebutkan nomor dan tahun seperti "UU Nomor 3 Tahun 1989"), `search_query_for_docs` harus sama persis dengan nama dokumen tersebut untuk memastikan pencarian yang akurat. Jika pengguna meminta beberapa dokumen spesifik, gabungkan nama-nama tersebut dalam query.
     *   Perkirakan jumlah dokumen yang diminta pengguna. Jika mereka meminta satu dokumen spesifik, setel `document_count` ke 1. Jika mereka meminta dua, setel ke 2, dan seterusnya. Jika permintaan bersifat umum ("kirimkan saya dokumen tentang telekomunikasi"), Anda dapat menyetel `document_count` ke angka yang wajar seperti 3 atau 5.
 
 ```json
 {{
   "intent": "provide_document",
-  "search_query_for_docs": "<kata kunci yang menurut Anda terbaik untuk menemukan dokumen yang diminta, dengan mempertimbangkan riwayat obrolan dan pertanyaan saat ini>",
-  "user_message": "<pesan singkat dan ramah untuk pengguna, mis., 'Tentu, saya menemukan dokumen berikut terkait permintaan Anda untuk X (berdasarkan percakapan kita):'>",
+  "search_query_for_docs": "<kata kunci yang menurut Anda terbaik untuk menemukan dokumen yang diminta, dengan mempertimbangkan riwayat obrolan dan pertanyaan saat ini. Terjemahkan kueri ini ke Bahasa Indonesia jika pertanyaan asli dalam bahasa lain.>",
+  "user_message": "<pesan singkat dan ramah untuk pengguna dalam bahasa ASLI pengguna, mis., 'Tentu, saya menemukan dokumen berikut...' atau 'Sure, here are the documents...'>",
   "document_count": <jumlah dokumen yang Anda perkirakan diminta pengguna>
 }}
 ```
 
-            *   `search_query_for_docs` harus merupakan penilaian terbaik Anda tentang subjek inti dari dokumen yang diinginkan pengguna, dengan mempertimbangkan seluruh percakapan.
+            *   `search_query_for_docs` harus merupakan penilaian terbaik Anda tentang subjek inti dari dokumen yang diinginkan pengguna, dengan mempertimbangkan seluruh percakapan, dan HARUS dalam Bahasa Indonesia untuk pencarian dokumen.
 
 **Instruksi Menjawab Terperinci (untuk Mode Menjawab):**
 *   **Ketergantungan Konteks:** Seluruh respons Anda harus berasal *hanya* dari `Konteks` yang disediakan.
-*   **Penanganan Bahasa:** Selalu berikan jawaban Anda dalam Bahasa Indonesia, terlepas dari bahasa pertanyaan aslinya.
+*   **Penanganan Bahasa:** Selalu berikan jawaban Anda dalam bahasa yang sama dengan `Pertanyaan` pengguna.
 *   **Ringkas & Relevan:** Jaga agar respons Anda tetap ringkas. Prioritaskan dan ekstrak hanya informasi yang paling relevan yang secara langsung menjawab pertanyaan pengguna.
 *   **Jawaban Terstruktur:** Sertakan jawaban langsung, bukti pendukung (data, temuan, kutipan), wawasan relevan, dan atribusi sumber (nama dokumen, nomor halaman jika tersedia).
-*   **Penanganan Kesenjangan Informasi:** Jika `Konteks` tidak mencukupi, nyatakan: "Saya tidak memiliki cukup informasi..."
+*   **Penanganan Kesenjangan Informasi:** Jika `Konteks` tidak mencukupi, nyatakan: "Saya tidak memiliki cukup informasi..." (atau terjemahan yang sesuai).
 *   **Nada:** Pertahankan nada yang profesional, analitis, dan objektif.
 
 **PENTING:** Pilih HANYA SATU mode per permintaan. Jika menyediakan dokumen, HANYA keluarkan JSON. Jika tidak, berikan jawaban tekstual.
@@ -131,13 +106,13 @@ class RAGSystem:
 
     def _create_condense_question_prompt(self) -> PromptTemplate:
         """Create a prompt template for condensing the current question and chat history into a standalone question."""
-        template = """Berdasarkan percakapan berikut dan pertanyaan lanjutan, ubah pertanyaan lanjutan tersebut menjadi pertanyaan yang dapat berdiri sendiri dalam Bahasa Indonesia.
+        template = """Berdasarkan percakapan berikut dan pertanyaan lanjutan, ubah pertanyaan lanjutan tersebut menjadi pertanyaan yang dapat berdiri sendiri. Pertahankan bahasa asli dari 'Input Lanjutan'.
 
 Riwayat Obrolan:
 {chat_history}
 
 Input Lanjutan: {question}
-Pertanyaan mandiri (dalam Bahasa Indonesia):"""
+Pertanyaan mandiri:"""
         return PromptTemplate.from_template(template)
 
     def _get_retriever_for_query(self, query: str, k: int = 5) -> List[Document]:
@@ -265,22 +240,9 @@ Pertanyaan mandiri (dalam Bahasa Indonesia):"""
             Dictionary containing answer and source documents, or document paths and user message.
         """
         try:
-            question_for_rag = question # By default, use the original question
+            question_for_rag = question # Use the original question directly
 
-            # Translate to Indonesian only if the source question is in another language.
-            try:
-                detected_lang_result = run_async_in_thread(self.translator.detect(question))
-                detected_lang = detected_lang_result.lang
-                
-                if detected_lang and not detected_lang.startswith('id'):
-                    logger.info(f"Question detected in '{detected_lang}', translating to Indonesian for processing.")
-                    translation_result = run_async_in_thread(self.translator.translate(question, src=detected_lang, dest='id'))
-                    question_for_rag = translation_result.text
-                    logger.info(f"Original ('{detected_lang}'): '{question}', Translated (ID): '{question_for_rag}'")
-            except Exception as e:
-                logger.warning(f"Language detection/translation for input query failed: {e}. Proceeding with original question.")
-
-            # Prepare a simple retriever. The complex logic is no longer needed.
+            # Prepare a simple retriever.
             retriever = self.vector_store.get_retriever(k=5)
             if not retriever:
                 logger.error("Failed to get retriever from vector store.")
@@ -318,7 +280,7 @@ Pertanyaan mandiri (dalam Bahasa Indonesia):"""
             
             # Invoke the chain with the current question and chat history
             llm_response_raw = conversational_chain.invoke({
-                "question": question_for_rag, # Use the Indonesian version of the question
+                "question": question_for_rag, # Use the original version of the question
                 "chat_history": formatted_chat_history
             })
             
