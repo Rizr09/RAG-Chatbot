@@ -17,6 +17,7 @@ from googletrans import Translator
 import asyncio
 import threading # Added for running async calls in a separate thread
 import json # Added for parsing LLM output
+import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -79,48 +80,48 @@ class RAGSystem:
     def _create_combine_docs_prompt(self) -> PromptTemplate:
         """Create a custom prompt template for AI and Finance research paper Q&A, used by the combine_docs_chain."""
         
-        template = """You are an expert in Telecommunication, Informatics, Cyber, and Internet Indonesia Law. Your primary goal is to assist users by either answering their questions based on the provided `Context` or by providing them with the relevant documents if their query indicates a request for the document itself. Use the `Chat History` to understand the context of the conversation.
+        template = """Anda adalah seorang ahli di bidang Hukum Telekomunikasi, Informatika, Siber, dan Internet di Indonesia. Tujuan utama Anda adalah membantu pengguna dengan menjawab pertanyaan mereka berdasarkan `Konteks` yang diberikan, atau dengan menyediakan dokumen yang relevan jika permintaan mereka mengindikasikan permintaan untuk dokumen itu sendiri. Gunakan `Riwayat Obrolan` untuk memahami konteks percakapan.
 
-**Chat History:**
-{chat_history}
+**Mode Respons:**
 
-**Response Modes:**
+1.  **Mode Menjawab:**
+    *   Jika pengguna mengajukan pertanyaan untuk mencari informasi, wawasan, ringkasan, atau detail spesifik *dari* dokumen, berikan jawaban tekstual yang komprehensif, akurat, dan mendalam yang berasal *hanya* dari `Konteks` yang disediakan.
+    *   Jangan memasukkan pengetahuan eksternal atau membuat asumsi yang tidak didukung oleh konteks yang diberikan.
+    *   Ikuti instruksi menjawab terperinci di bawah ini.
 
-1.  **Answering Mode:**
-    *   If the user asks a question seeking information, insights, summaries, or specific details *from* the documents, provide a comprehensive, accurate, and insightful textual answer derived *solely* from the provided `Context`.
-    *   Do not incorporate any external knowledge or make assumptions not supported by the given context.
-    *   Follow the detailed answering instructions below.
-
-2.  **Document Provisioning Mode:**
-    *   If you judge that the user's query is primarily a request *for* one or more documents, papers, or files themselves (e.g., "send me the regulation on X", "can I get the law about Y?", "find the internet policy on Z and related articles"), then you MUST respond *ONLY* with a single JSON object in the following exact format. Do not add any text before or after this JSON object:
+2.  **Mode Penyediaan Dokumen:**
+    *   Jika Anda menilai bahwa permintaan pengguna adalah permintaan *untuk* satu atau lebih dokumen, makalah, atau file itu sendiri (misalnya, "kirimkan saya peraturan tentang X", "bisakah saya mendapatkan undang-undang tentang Y?", "temukan kebijakan internet tentang Z dan pasal-pasal terkait"), maka Anda HARUS merespons *HANYA* dengan satu objek JSON dalam format yang sama persis berikut ini. Jangan menambahkan teks apa pun sebelum atau sesudah objek JSON ini:
+    *   **PENTING**: Jika pengguna meminta dokumen yang sangat spesifik (misalnya, dengan menyebutkan nomor dan tahun seperti "UU Nomor 3 Tahun 1989"), `search_query_for_docs` harus sama persis dengan nama dokumen tersebut untuk memastikan pencarian yang akurat. Jika pengguna meminta beberapa dokumen spesifik, gabungkan nama-nama tersebut dalam query.
+    *   Perkirakan jumlah dokumen yang diminta pengguna. Jika mereka meminta satu dokumen spesifik, setel `document_count` ke 1. Jika mereka meminta dua, setel ke 2, dan seterusnya. Jika permintaan bersifat umum ("kirimkan saya dokumen tentang telekomunikasi"), Anda dapat menyetel `document_count` ke angka yang wajar seperti 3 atau 5.
 
 ```json
 {{
   "intent": "provide_document",
-  "search_query_for_docs": "<keywords you determine are best for finding the requested document(s), considering the chat history and current question>",
-  "user_message": "<a short, friendly message for the user, e.g., 'Tentu, saya menemukan dokumen berikut terkait permintaan Anda untuk X (berdasarkan percakapan kita):'>"
+  "search_query_for_docs": "<kata kunci yang menurut Anda terbaik untuk menemukan dokumen yang diminta, dengan mempertimbangkan riwayat obrolan dan pertanyaan saat ini>",
+  "user_message": "<pesan singkat dan ramah untuk pengguna, mis., 'Tentu, saya menemukan dokumen berikut terkait permintaan Anda untuk X (berdasarkan percakapan kita):'>",
+  "document_count": <jumlah dokumen yang Anda perkirakan diminta pengguna>
 }}
 ```
 
-            *   The `search_query_for_docs` should be your best assessment of the core subject of the document(s) the user wants, considering the full conversation.
+            *   `search_query_for_docs` harus merupakan penilaian terbaik Anda tentang subjek inti dari dokumen yang diinginkan pengguna, dengan mempertimbangkan seluruh percakapan.
 
-**Detailed Answering Instructions (for Answering Mode):**
-*   **Context Reliance:** Your entire response must be derived *solely* from the provided `Context`.
-*   **Language Handling:** If the user's question was in Indonesian, provide your answer in Indonesian. Otherwise, answer in the language of the question.
-*   **Conciseness & Relevance:** Keep your response concise. Prioritize and extract only the most relevant information that directly addresses the user's question.
-*   **Structured Answer:** Include a direct answer, supporting evidence (data, findings, quotes), relevant insights, and source attribution (document name, page number if available).
-*   **Information Gap Handling:** If the `Context` is insufficient, state (in the appropriate language): "Saya tidak memiliki cukup informasi..." or "I do not have enough information..."
-*   **Tone:** Maintain a professional, analytical, and objective tone.
+**Instruksi Menjawab Terperinci (untuk Mode Menjawab):**
+*   **Ketergantungan Konteks:** Seluruh respons Anda harus berasal *hanya* dari `Konteks` yang disediakan.
+*   **Penanganan Bahasa:** Selalu berikan jawaban Anda dalam Bahasa Indonesia, terlepas dari bahasa pertanyaan aslinya.
+*   **Ringkas & Relevan:** Jaga agar respons Anda tetap ringkas. Prioritaskan dan ekstrak hanya informasi yang paling relevan yang secara langsung menjawab pertanyaan pengguna.
+*   **Jawaban Terstruktur:** Sertakan jawaban langsung, bukti pendukung (data, temuan, kutipan), wawasan relevan, dan atribusi sumber (nama dokumen, nomor halaman jika tersedia).
+*   **Penanganan Kesenjangan Informasi:** Jika `Konteks` tidak mencukupi, nyatakan: "Saya tidak memiliki cukup informasi..."
+*   **Nada:** Pertahankan nada yang profesional, analitis, dan objektif.
 
-**IMPORTANT:** Choose ONLY ONE mode per query. If providing documents, ONLY output the JSON. Otherwise, provide a textual answer.
+**PENTING:** Pilih HANYA SATU mode per permintaan. Jika menyediakan dokumen, HANYA keluarkan JSON. Jika tidak, berikan jawaban tekstual.
 
-**Context:**
+**Konteks:**
 {context}
 
-**Question:**
+**Pertanyaan:**
 {question}
 
-**Answer:**
+**Jawaban:**
 """ # Ensure no stray characters after this final triple quote.
         
         return PromptTemplate(
@@ -130,13 +131,13 @@ class RAGSystem:
 
     def _create_condense_question_prompt(self) -> PromptTemplate:
         """Create a prompt template for condensing the current question and chat history into a standalone question."""
-        template = """Given the following conversation and a follow up question, rephrase the follow up question to be a standalone question, in its original language.
+        template = """Berdasarkan percakapan berikut dan pertanyaan lanjutan, ubah pertanyaan lanjutan tersebut menjadi pertanyaan yang dapat berdiri sendiri dalam Bahasa Indonesia.
 
-Chat History:
+Riwayat Obrolan:
 {chat_history}
 
-Follow Up Input: {question}
-Standalone question:"""
+Input Lanjutan: {question}
+Pertanyaan mandiri (dalam Bahasa Indonesia):"""
         return PromptTemplate.from_template(template)
 
     def _get_retriever_for_query(self, query: str, k: int = 5) -> List[Document]:
@@ -264,31 +265,33 @@ Standalone question:"""
             Dictionary containing answer and source documents, or document paths and user message.
         """
         try:
-            original_question = question
-            translated_question_for_retrieval = None
-            question_lang = 'en' # Default to English
+            question_for_rag = question # By default, use the original question
 
-            # Language detection and translation for retrieval query (if Indonesian)
+            # Translate to Indonesian only if the source question is in another language.
             try:
                 detected_lang_result = run_async_in_thread(self.translator.detect(question))
                 detected_lang = detected_lang_result.lang
                 
-                if detected_lang.startswith('id'):
-                    question_lang = 'id'
-                    translation_result = run_async_in_thread(self.translator.translate(question, src='id', dest='en'))
-                    translated_question_for_retrieval = translation_result.text
-                    logger.info(f"Original (ID): '{question}', Translated (EN) for retrieval: '{translated_question_for_retrieval}'")
+                if detected_lang and not detected_lang.startswith('id'):
+                    logger.info(f"Question detected in '{detected_lang}', translating to Indonesian for processing.")
+                    translation_result = run_async_in_thread(self.translator.translate(question, src=detected_lang, dest='id'))
+                    question_for_rag = translation_result.text
+                    logger.info(f"Original ('{detected_lang}'): '{question}', Translated (ID): '{question_for_rag}'")
             except Exception as e:
-                logger.warning(f"Language detection/translation for input query failed: {e}. Proceeding with original question for retrieval if needed.")
+                logger.warning(f"Language detection/translation for input query failed: {e}. Proceeding with original question.")
 
-            # Prepare retriever
-            retriever = self._get_custom_retriever(
-                translated_question_for_retrieval=translated_question_for_retrieval,
-                original_question=original_question
-            )
+            # Prepare a simple retriever. The complex logic is no longer needed.
+            retriever = self.vector_store.get_retriever(k=5)
+            if not retriever:
+                logger.error("Failed to get retriever from vector store.")
+                return {
+                    "type": "error",
+                    "answer": "The RAG system's document retriever could not be initialized.",
+                    "source_documents": [],
+                    "error": "Retriever not available"
+                }
 
-            # Convert Streamlit chat history to Langchain's expected format (list of tuples for ConversationalRetrievalChain)
-            # Or list of BaseMessage objects if using memory more directly
+            # Convert Streamlit chat history to Langchain's expected format
             formatted_chat_history = []
             for msg in chat_history_messages:
                 if msg["role"] == "user":
@@ -303,7 +306,6 @@ Standalone question:"""
 
 
             # Create or get the conversational chain
-            # The chain needs to be (re)created with the potentially new retriever strategy
             conversational_chain = self._create_conversational_qa_chain(retriever, formatted_chat_history)
             
             if not conversational_chain:
@@ -315,10 +317,8 @@ Standalone question:"""
                 }
             
             # Invoke the chain with the current question and chat history
-            # The `question` is the current user utterance.
-            # `chat_history` is the history of (human_message, ai_message) tuples.
             llm_response_raw = conversational_chain.invoke({
-                "question": original_question, # Pass the original question
+                "question": question_for_rag, # Use the Indonesian version of the question
                 "chat_history": formatted_chat_history
             })
             
@@ -340,11 +340,12 @@ Standalone question:"""
                     extracted_json_str = potential_json_str[json_start_index : json_end_index+1]
                     llm_output_json = json.loads(extracted_json_str)
                     if isinstance(llm_output_json, dict) and llm_output_json.get("intent") == "provide_document":
-                        search_query_for_docs = llm_output_json.get("search_query_for_docs", original_question) # Fallback to original question if not specified
-                        user_message = llm_output_json.get("user_message", "Here are the documents I found based on our conversation:")
+                        search_query_for_docs = llm_output_json.get("search_query_for_docs", question_for_rag) # Fallback to rag question
+                        user_message = llm_output_json.get("user_message", "Berikut dokumen yang saya temukan berdasarkan percakapan kita:")
+                        document_count = llm_output_json.get("document_count", 1) # Default to 1 if not present
                         
-                        logger.info(f"LLM signaled 'provide_document' intent. Search query for docs: '{search_query_for_docs}'")
-                        document_paths = self.get_documents_for_query(search_query_for_docs, k=5) # Use the dedicated method
+                        logger.info(f"LLM signaled 'provide_document' intent. Search query for docs: '{search_query_for_docs}', count: {document_count}")
+                        document_paths = self.get_documents_for_query(search_query_for_docs, k=document_count) # Use the dedicated method
                         
                         return {
                             "type": "documents",
@@ -363,20 +364,8 @@ Standalone question:"""
                 logger.info(f"LLM response ('{raw_answer_text[:100]}...') is not the expected provide_document JSON. Proceeding with Answering Mode.")
             # Fall-through to Answering Mode
 
+            # The answer from the LLM is now in Indonesian. No translation needed.
             answer = raw_answer_text
-            
-            if question_lang == 'id':
-                try:
-                    detected_answer_lang_result = run_async_in_thread(self.translator.detect(answer))
-                    detected_answer_lang = detected_answer_lang_result.lang
-                    if detected_answer_lang and not detected_answer_lang.startswith('id'):
-                        logger.info(f"Translating answer from {detected_answer_lang} to ID. Original answer: '{answer[:100]}...'")
-                        translated_answer_result = run_async_in_thread(self.translator.translate(answer, src=detected_answer_lang, dest='id'))
-                        translated_answer = translated_answer_result.text
-                        answer = translated_answer
-                        logger.info(f"Translated answer (ID): '{answer[:100]}...'")
-                except Exception as e:
-                    logger.warning(f"Answer translation to Indonesian failed: {e}. Returning original answer.")
             
             sources = []
             for i, doc in enumerate(source_documents_from_chain):
@@ -388,13 +377,13 @@ Standalone question:"""
                 }
                 sources.append(source_info)
             
-            logger.info(f"Generated answer for question: {original_question[:50]}...")
+            logger.info(f"Generated answer for question: {question[:50]}...")
             
             return {
                 "type": "answer",
                 "answer": answer,
                 "source_documents": sources,
-                "question": original_question # Storing original question for context if needed by UI
+                "question": question # Storing original question for context if needed by UI
             }
             
         except Exception as e:
@@ -421,33 +410,14 @@ Standalone question:"""
     def get_documents_for_query(self, query: str, k: int = 5) -> List[str]:
         """
         Get relevant document file paths for a query.
-        Handles potential translation for Indonesian queries.
+        The query is expected to be in Indonesian, as generated by the LLM.
         Returns a list of unique source file paths.
         This is used by the 'provide_document' intent.
         """
         try:
-            original_query = query
-            translated_query_for_retrieval = None
-            
-            try:
-                detected_lang_result = run_async_in_thread(self.translator.detect(query))
-                detected_lang = detected_lang_result.lang
-                if detected_lang.startswith('id'):
-                    translation_result = run_async_in_thread(self.translator.translate(query, src='id', dest='en'))
-                    translated_query_for_retrieval = translation_result.text
-                    logger.info(f"Original (ID) for doc path retrieval: '{query}', Translated (EN): '{translated_query_for_retrieval}'")
-            except Exception as e:
-                logger.warning(f"Language detection/translation for doc path retrieval failed: {e}. Proceeding with original query.")
-
-            relevant_docs = []
-            # Use the vector_store's similarity search directly here.
-            # The k value here is for how many docs to fetch per query (original/translated)
-            docs_orig = self.vector_store.similarity_search(original_query, k=5) 
-            relevant_docs.extend(docs_orig)
-            
-            if translated_query_for_retrieval:
-                docs_trans = self.vector_store.similarity_search(translated_query_for_retrieval, k=5)
-                relevant_docs.extend(docs_trans)
+            # The query from the LLM is now in Indonesian, so no translation is needed.
+            logger.info(f"Retrieving document paths for Indonesian query: '{query}'")
+            relevant_docs = self.vector_store.similarity_search(query, k=k)
             
             source_file_paths = set()
             for doc in relevant_docs:

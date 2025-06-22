@@ -9,6 +9,42 @@ from vector_store import VectorStore
 from rag_system import RAGSystem
 from utils import process_and_add_documents
 
+def run_benchmark_for_query(rag_system, vector_store, query, query_name, n_runs=10):
+    """Runs a benchmark for a given query and prints the results."""
+    print(f"\n--- Benchmarking for: {query_name} ---")
+    print(f"Query: \"{query}\"")
+
+    # Warm-up run to avoid cold-start penalties
+    _ = vector_store.similarity_search_with_score(query, k=10)
+    _ = rag_system.answer_conversational(query, [])
+
+    retrieval_times = []
+    total_times = []
+
+    for i in range(n_runs):
+        t0 = time.time()
+        # Benchmark retrieval only
+        _ = vector_store.similarity_search_with_score(query, k=10)
+        t1 = time.time()
+        # Benchmark full RAG QA
+        _ = rag_system.answer_conversational(query, [])
+        t2 = time.time()
+
+        retrieval_ms = (t1 - t0) * 1000
+        total_ms = (t2 - t0) * 1000
+
+        retrieval_times.append(retrieval_ms)
+        total_times.append(total_ms)
+        print(f"  Run {i+1:2d}: retrieval {retrieval_ms:.0f} ms, end-to-end {total_ms:.0f} ms")
+
+    avg_ret = sum(retrieval_times) / n_runs
+    avg_tot = sum(total_times) / n_runs
+
+    print(f"\n  Average Results ({n_runs} runs) for '{query_name}':")
+    print(f"  - Average retrieval (top-10): {avg_ret:.0f} ms")
+    print(f"  - Average end-to-end QA:    {avg_tot:.0f} ms")
+    return avg_tot
+
 def main():
     # 1) Load env & API key
     load_dotenv()
@@ -21,49 +57,32 @@ def main():
     vector_store = VectorStore(api_key=api_key)
     rag_system = RAGSystem(api_key=api_key, vector_store=vector_store)
 
-    # 3) Jika vector store kosong, proses dokumen
+    # 3) If vector store is empty, process documents
     if vector_store.get_collection_count() == 0:
-        print("Vector store kosong → memproses dokumen...")
+        print("Vector store is empty -> processing documents...")
         success = process_and_add_documents(vector_store, "./documents_retrieval")
         if not success:
-            print("Gagal memproses dokumen. Benchmark tidak dapat dilanjutkan.")
+            print("Failed to process documents. Benchmark cannot continue.")
             return
-        print(f"   • Terindeks {vector_store.get_collection_count()} chunk teks")
+        print(f"   • Indexed {vector_store.get_collection_count()} text chunks")
 
-    # 4) Sample query untuk benchmark
-    sample_query = "Apakah sudah ada UU yang membahas perlindungan data pribadi anak?"
+    # 4) Sample queries for benchmarking
+    query_id = "Apakah sudah ada UU yang membahas perlindungan data pribadi anak?"
+    query_en = "Is there a law that discusses the protection of children's personal data?"
 
-    # 5) Warm-up
-    _ = vector_store.similarity_search_with_score(sample_query, k=10)
-    _ = rag_system.answer_conversational(sample_query, [])
+    # 5) Run benchmarks
+    print("\nStarting RAG System Benchmark...")
+    avg_id = run_benchmark_for_query(rag_system, vector_store, query_id, "Indonesian Query (No Translation)")
+    avg_en = run_benchmark_for_query(rag_system, vector_store, query_en, "English Query (with Translation)")
 
-    # 6) Benchmarking
-    n_runs = 10
-    retrieval_times = []
-    total_times = []
+    print("\n\n=== Overall Benchmark Summary ===")
+    print(f"Indonesian (No Translation) Average: {avg_id:.0f} ms")
+    print(f"English (with Translation) Average:  {avg_en:.0f} ms")
+    if avg_id > 0:
+        overhead = ((avg_en - avg_id) / avg_id) * 100
+        print(f"Translation overhead: +{overhead:.1f}%")
+    print("=================================")
 
-    for i in range(n_runs):
-        t0 = time.time()
-        # retrieval saja
-        _ = vector_store.similarity_search_with_score(sample_query, k=10)
-        t1 = time.time()
-        # full RAG QA
-        _ = rag_system.answer_conversational(sample_query, [])
-        t2 = time.time()
-
-        retrieval_ms = (t1 - t0) * 1000
-        total_ms     = (t2 - t0) * 1000
-
-        retrieval_times.append(retrieval_ms)
-        total_times.append(total_ms)
-        print(f"Run {i+1:2d}: retrieval {retrieval_ms:.0f} ms, end-to-end {total_ms:.0f} ms")
-
-    avg_ret = sum(retrieval_times) / n_runs
-    avg_tot = sum(total_times)     / n_runs
-
-    print("\n=== Hasil Rata-Rata (10 runs) ===")
-    print(f"Average retrieval (top-6): {avg_ret:.0f} ms")
-    print(f"Average end-to-end QA:    {avg_tot:.0f} ms")
 
 if __name__ == "__main__":
     main()
