@@ -15,7 +15,7 @@ def run_benchmark_for_query(rag_system, vector_store, query, query_name, n_runs=
     print(f"Query: \"{query}\"")
 
     # Warm-up run to avoid cold-start penalties
-    _ = vector_store.similarity_search_with_score(query, k=10)
+    _ = vector_store.similarity_search_with_score(query, k=4)
     _ = rag_system.answer_conversational(query, [])
 
     retrieval_times = []
@@ -24,7 +24,7 @@ def run_benchmark_for_query(rag_system, vector_store, query, query_name, n_runs=
     for i in range(n_runs):
         t0 = time.time()
         # Benchmark retrieval only
-        _ = vector_store.similarity_search_with_score(query, k=10)
+        _ = vector_store.similarity_search_with_score(query, k=4)
         t1 = time.time()
         # Benchmark full RAG QA
         _ = rag_system.answer_conversational(query, [])

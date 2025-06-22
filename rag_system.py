@@ -5,10 +5,11 @@ RAG (Retrieval-Augmented Generation) system using Gemini 2.5 Pro.
 from typing import List, Dict, Any, Tuple
 import google.generativeai as genai
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.chains import ConversationalRetrievalChain
-from langchain.chains.question_answering import load_qa_chain
-from langchain.chains.llm import LLMChain
+from langchain.chains import create_history_aware_retriever, create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.prompts import PromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.callbacks.manager import CallbackManagerForRetrieverRun, AsyncCallbackManagerForRetrieverRun
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
@@ -51,7 +52,7 @@ class RAGSystem:
     def _create_combine_docs_prompt(self) -> PromptTemplate:
         """Create a custom prompt template for AI and Finance research paper Q&A, used by the combine_docs_chain."""
         
-        template = """Anda adalah seorang ahli multibahasa di bidang Hukum Telekomunikasi, Informatika, Siber, dan Internet di Indonesia. Tujuan utama Anda adalah membantu pengguna dengan menjawab pertanyaan mereka berdasarkan `Konteks` yang diberikan, atau dengan menyediakan dokumen yang relevan jika permintaan mereka mengindikasikan permintaan untuk dokumen itu sendiri. Gunakan `Riwayat Obrolan` untuk memahami konteks percakapan.
+        template = """Anda adalah seorang ahli multibahasa di bidang Hukum Telekomunikasi, Informatika, Siber, dan Internet di Indonesia. Tujuan utama Anda adalah membantu pengguna dengan menjawab pertanyaan mereka berdasarkan `Konteks` yang diberikan, atau dengan menyediakan dokumen yang relevan jika permintaan mereka mengindikasikan permintaan untuk dokumen itu sendiri.
 
 **PENTING: Deteksi Bahasa dan Respons**
 - **Deteksi bahasa dari `Pertanyaan` pengguna.**
@@ -72,13 +73,13 @@ class RAGSystem:
 ```json
 {{
   "intent": "provide_document",
-  "search_query_for_docs": "<kata kunci yang menurut Anda terbaik untuk menemukan dokumen yang diminta, dengan mempertimbangkan riwayat obrolan dan pertanyaan saat ini. Terjemahkan kueri ini ke Bahasa Indonesia jika pertanyaan asli dalam bahasa lain.>",
+  "search_query_for_docs": "<kata kunci yang menurut Anda terbaik untuk menemukan dokumen yang diminta, dengan mempertimbangkan pertanyaan saat ini. Terjemahkan kueri ini ke Bahasa Indonesia jika pertanyaan asli dalam bahasa lain.>",
   "user_message": "<pesan singkat dan ramah untuk pengguna dalam bahasa ASLI pengguna, mis., 'Tentu, saya menemukan dokumen berikut...' atau 'Sure, here are the documents...'>",
   "document_count": <jumlah dokumen yang Anda perkirakan diminta pengguna>
 }}
 ```
 
-            *   `search_query_for_docs` harus merupakan penilaian terbaik Anda tentang subjek inti dari dokumen yang diinginkan pengguna, dengan mempertimbangkan seluruh percakapan, dan HARUS dalam Bahasa Indonesia untuk pencarian dokumen.
+            *   `search_query_for_docs` harus merupakan penilaian terbaik Anda tentang subjek inti dari dokumen yang diinginkan pengguna, dan HARUS dalam Bahasa Indonesia untuk pencarian dokumen.
 
 **Instruksi Menjawab Terperinci (untuk Mode Menjawab):**
 *   **Ketergantungan Konteks:** Seluruh respons Anda harus berasal *hanya* dari `Konteks` yang disediakan.
@@ -94,14 +95,14 @@ class RAGSystem:
 {context}
 
 **Pertanyaan:**
-{question}
+{input}
 
 **Jawaban:**
 """ # Ensure no stray characters after this final triple quote.
         
         return PromptTemplate(
             template=template,
-            input_variables=["chat_history", "context", "question"]
+            input_variables=["context", "input"]
         )
 
     def _create_condense_question_prompt(self) -> PromptTemplate:
@@ -190,41 +191,32 @@ Pertanyaan mandiri:"""
                 # Return an empty retriever as a last resort
                 return self._create_custom_retriever_instance([])
 
-    def _create_conversational_qa_chain(self, retriever: BaseRetriever, chat_history_for_memory: List[Tuple[str, str]]):
-        """Create the ConversationalRetrievalChain."""
+    def _create_rag_chain(self, retriever: BaseRetriever):
+        """Create a RAG chain that is aware of conversation history."""
         try:
-            # Memory for the conversation
-            # We re-create it for each call to ensure it's per-user and reset on new sessions.
-            # The `chat_history_massages` from Streamlit will be used to populate this.
-            # However, ConversationalRetrievalChain manages its own memory internally if we pass chat_history.
-            # Let's simplify and pass the history directly to the chain.
-
-            # Document combining chain
-            combine_docs_chain = load_qa_chain(
-                llm=self.llm,
-                chain_type="stuff", # "stuff" is good for relatively small contexts
-                prompt=self.combine_docs_prompt,
-                document_variable_name="context" # Ensure this matches the prompt
+            # Contextualize question prompt
+            contextualize_q_system_prompt = """Berdasarkan riwayat obrolan dan pertanyaan terbaru pengguna, yang mungkin merujuk pada konteks dalam riwayat obrolan, rumuskan pertanyaan mandiri yang dapat dipahami tanpa riwayat obrolan. JANGAN menjawab pertanyaan itu, cukup rumuskan ulang jika perlu dan jika tidak, kembalikan sebagaimana adanya. Pertahankan bahasa asli dari pertanyaan pengguna."""
+            contextualize_q_prompt = ChatPromptTemplate.from_messages([
+                ("system", contextualize_q_system_prompt),
+                MessagesPlaceholder("chat_history"),
+                ("human", "{input}"),
+            ])
+            
+            history_aware_retriever = create_history_aware_retriever(
+                self.llm, retriever, contextualize_q_prompt
             )
 
-            # Question generator chain
-            question_generator_chain = LLMChain(
-                llm=self.llm,
-                prompt=self.condense_question_prompt
-            )
+            # Answering prompt
+            qa_prompt = ChatPromptTemplate.from_template(self.combine_docs_prompt.template)
             
-            qa_chain = ConversationalRetrievalChain(
-                retriever=retriever,
-                combine_docs_chain=combine_docs_chain,
-                question_generator=question_generator_chain,
-                return_source_documents=True,
-                # memory=memory, # We will pass chat_history directly
-            )
-            logger.info("ConversationalRetrievalChain created successfully")
-            return qa_chain
+            question_answer_chain = create_stuff_documents_chain(self.llm, qa_prompt)
             
+            rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
+            
+            logger.info("RAG chain created successfully.")
+            return rag_chain
         except Exception as e:
-            logger.error(f"Error creating ConversationalRetrievalChain: {str(e)}", exc_info=True)
+            logger.error(f"Error creating RAG chain: {str(e)}", exc_info=True)
             return None
 
     def answer_conversational(self, question: str, chat_history_messages: List[Dict[str, str]]) -> Dict[str, Any]:
@@ -257,20 +249,15 @@ Pertanyaan mandiri:"""
             formatted_chat_history = []
             for msg in chat_history_messages:
                 if msg["role"] == "user":
-                    formatted_chat_history.append((msg["content"], "")) # User query
+                    formatted_chat_history.append(HumanMessage(content=msg["content"]))
                 elif msg["role"] == "assistant":
-                    # Find the preceding user message to pair with this assistant message
-                    if formatted_chat_history and formatted_chat_history[-1][1] == "":
-                        last_user_query = formatted_chat_history.pop()[0]
-                        formatted_chat_history.append((last_user_query, msg["content"]))
-                    else: # Should not happen if history is well-formed user-assistant pairs
-                        formatted_chat_history.append(("", msg["content"])) # Or handle as error
+                    formatted_chat_history.append(AIMessage(content=msg["content"]))
 
 
             # Create or get the conversational chain
-            conversational_chain = self._create_conversational_qa_chain(retriever, formatted_chat_history)
+            rag_chain = self._create_rag_chain(retriever)
             
-            if not conversational_chain:
+            if not rag_chain:
                 return {
                     "type": "error",
                     "answer": "The RAG system's conversational chain could not be initialized. Please check the setup.",
@@ -279,13 +266,13 @@ Pertanyaan mandiri:"""
                 }
             
             # Invoke the chain with the current question and chat history
-            llm_response_raw = conversational_chain.invoke({
-                "question": question_for_rag, # Use the original version of the question
+            llm_response_raw = rag_chain.invoke({
+                "input": question_for_rag,
                 "chat_history": formatted_chat_history
             })
             
-            raw_answer_text = llm_response_raw.get("answer", "").strip() # 'answer' is the key from ConversationalRetrievalChain
-            source_documents_from_chain = llm_response_raw.get("source_documents", [])
+            raw_answer_text = llm_response_raw.get("answer", "").strip() # 'answer' is the key from the chain
+            source_documents_from_chain = llm_response_raw.get("context", [])
 
             # Attempt to parse the LLM's response as JSON for document provisioning intent
             try:
