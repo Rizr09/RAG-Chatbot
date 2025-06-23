@@ -74,8 +74,9 @@ class RAGSystem:
 {{
   "intent": "provide_document",
   "search_query_for_docs": "<kata kunci yang menurut Anda terbaik untuk menemukan dokumen yang diminta, dengan mempertimbangkan pertanyaan saat ini. Terjemahkan kueri ini ke Bahasa Indonesia jika pertanyaan asli dalam bahasa lain.>",
-  "user_message": "<pesan singkat dan ramah untuk pengguna dalam bahasa ASLI pengguna, mis., 'Tentu, saya menemukan dokumen berikut...' atau 'Sure, here are the documents...'>",
-  "document_count": <jumlah dokumen yang Anda perkirakan diminta pengguna>
+  "user_message": "<pesan pembuka yang ramah dalam bahasa ASLI pengguna. Contoh: 'Tentu, saya akan carikan dokumen yang Anda minta.'>",
+  "document_count": <jumlah dokumen yang Anda perkirakan diminta pengguna>,
+  "response_language": "<bahasa yang digunakan untuk user_message, 'indonesian' atau 'english'>"
 }}
 ```
 
@@ -290,16 +291,40 @@ Pertanyaan mandiri:"""
                     llm_output_json = json.loads(extracted_json_str)
                     if isinstance(llm_output_json, dict) and llm_output_json.get("intent") == "provide_document":
                         search_query_for_docs = llm_output_json.get("search_query_for_docs", question_for_rag) # Fallback to rag question
-                        user_message = llm_output_json.get("user_message", "Berikut dokumen yang saya temukan berdasarkan percakapan kita:")
-                        document_count = llm_output_json.get("document_count", 1) # Default to 1 if not present
+                        user_message_base = llm_output_json.get("user_message", "Berikut dokumen yang saya temukan berdasarkan percakapan kita:")
+                        document_count_from_llm = llm_output_json.get("document_count", 1) # Default to 1 if not present
+                        response_language = llm_output_json.get("response_language", "indonesian").lower()
+
+                        logger.info(f"LLM signaled 'provide_document' intent. Search query for docs: '{search_query_for_docs}', requested count: {document_count_from_llm}")
                         
-                        logger.info(f"LLM signaled 'provide_document' intent. Search query for docs: '{search_query_for_docs}', count: {document_count}")
-                        document_paths = self.get_documents_for_query(search_query_for_docs, k=document_count) # Use the dedicated method
+                        # Get the actual document paths first
+                        document_paths = self.get_documents_for_query(search_query_for_docs, k=document_count_from_llm)
+                        
+                        # Get the actual count of unique documents
+                        actual_document_count = len(document_paths)
+
+                        # Now construct the message with the correct count
+                        count_message = ""
+                        if 'indonesian' in response_language:
+                            if actual_document_count > 0:
+                                count_message = f" Saya menemukan {actual_document_count} dokumen yang relevan."
+                            else:
+                                # Handle case where no documents are found
+                                count_message = " Saya tidak menemukan dokumen yang cocok."
+                        elif 'english' in response_language:
+                            if actual_document_count > 0:
+                                plural = "s" if actual_document_count > 1 else ""
+                                count_message = f" I found {actual_document_count} relevant document{plural}."
+                            else:
+                                # Handle case where no documents are found
+                                count_message = " I could not find any matching documents."
+                        
+                        final_user_message = user_message_base + count_message
                         
                         return {
                             "type": "documents",
                             "document_paths": document_paths,
-                            "user_message": user_message,
+                            "user_message": final_user_message,
                             "query_used_for_retrieval": search_query_for_docs
                         }
                     else:
@@ -322,7 +347,7 @@ Pertanyaan mandiri:"""
                 source_file = doc.metadata.get("source_file")
                 if source_file:
                     # Get filename without extension
-                    filename_without_ext = os.path.splitext(os.path.basename(source_file))[0]
+                    filename_without_ext = os.path.splitext(os.path.basename(source_file))[0].replace('_', ' ')
                     source_filenames.add(filename_without_ext)
 
                 source_info = {
